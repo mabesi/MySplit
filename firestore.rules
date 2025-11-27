@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a group document exists
+    function groupExists(groupId) {
+      return exists(/databases/$(database)/documents/groups/$(groupId));
+    }
+
+    // Helper function to get group data safely
+    function getGroupData(groupId) {
+      return groupExists(groupId) ? get(/databases/$(database)/documents/groups/$(groupId)).data : null;
+    }
+    
+    // Helper function to check if user is a member of the group
+    function isMember(groupId) {
+      let group = getGroupData(groupId);
+      return request.auth != null &&
+             group != null &&
+             group.members is list &&
+             request.auth.uid in group.members.map(m => m.id);
+    }
+    
+    // Helper function to check if user is an active member
+    function isActiveMember(groupId) {
+      let group = getGroupData(groupId);
+      return request.auth != null &&
+             group != null &&
+             group.members is list &&
+             group.members.filter(m => m.id == request.auth.uid && m.status == 'active').size() > 0;
+    }
+    
+    // Helper function to check if user is the group owner
+    function isOwner(groupId) {
+      let group = getGroupData(groupId);
+      return request.auth != null && 
+             group != null &&
+             request.auth.uid == group.ownerId;
+    }
+    
+    // Groups collection rules
+    match /groups/{groupId} {
+      // Anyone authenticated can create a new group
+      allow create: if request.auth != null;
+      
+      // Only members can read the group
+      allow read: if isMember(groupId);
+      
+      // Only active members can update the group
+      allow update: if isActiveMember(groupId);
+      
+      // Only the owner can delete the group
+      allow delete: if isOwner(groupId);
+    }
+  }
+}
