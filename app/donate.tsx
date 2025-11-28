@@ -129,8 +129,8 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     iconContainer: {
-        marginBottom: 32,
-        padding: 24,
+        marginBottom: 16,
+        padding: 20,
         borderRadius: 100,
         backgroundColor: 'rgba(244, 63, 94, 0.1)',
     },
@@ -138,15 +138,15 @@ const styles = StyleSheet.create({
         fontSize: 24,
         fontWeight: 'bold',
         color: '#F8FAFC',
-        marginBottom: 16,
+        marginBottom: 12,
         textAlign: 'center',
     },
     message: {
-        fontSize: 16,
+        fontSize: 15,
         color: '#94A3B8',
         textAlign: 'center',
-        marginBottom: 48,
-        lineHeight: 24,
+        marginBottom: 24,
+        lineHeight: 22,
     },
     donateButton: {
         width: '100%',
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     separator: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginVertical: 24,
+        marginVertical: 16,
         width: '100%',
     },
     separatorLine: {
