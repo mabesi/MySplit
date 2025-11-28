@@ -269,7 +269,7 @@ export default function HomeScreen() {
                             />
                             <View style={styles.footerTextContainer}>
                                 <Text style={styles.footerTitle}>Mabesi Apps</Text>
-                                <Text style={styles.footerUrl}>{process.env.EXPO_PUBLIC_BASE_URL}</Text>
+                                <Text style={styles.footerUrl}>{process.env.EXPO_PUBLIC_BASE_URL?.replace('https://', '')}</Text>
                             </View>
                         </TouchableOpacity>
                     </View>
