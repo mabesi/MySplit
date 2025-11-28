@@ -45,6 +45,24 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // @ts-ignore
     // @ts-ignore
+    // Load stored user ID immediately on mount to support offline usage
+    useEffect(() => {
+        const loadStoredUser = async () => {
+            try {
+                const storedUid = await AsyncStorage.getItem('uid');
+                if (storedUid) {
+                    console.log('Restored user ID from storage:', storedUid);
+                    setUserId(storedUid);
+                }
+            } catch (e) {
+                console.error('Failed to load stored user ID:', e);
+            }
+        };
+        loadStoredUser();
+    }, []);
+
+    // @ts-ignore
+    // @ts-ignore
     useEffect(() => {
         let unsubscribe: () => void;
 
@@ -54,31 +72,36 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
                 if (user) {
                     // Auth state restored
+                    console.log('Firebase Auth State: User connected', user.uid);
                     setUserId(user.uid);
                     await AsyncStorage.setItem('uid', user.uid);
                 } else {
                     // No active session found
-                    // Only if Firebase says "no user" do we check storage or create a new one
-                    try {
-                        const storedUid = await AsyncStorage.getItem('uid');
-                        if (storedUid) {
-                            // This is a tricky case: We have a stored UID but Firebase says we are logged out.
-                            // For anonymous auth, we can't "re-login" with just a UID. 
-                            // We have to accept we might need a new ID, OR the session is just expired.
-                            // However, to be safe and avoid stranding data, we'll try to sign in anonymously again.
-                            // Ideally, Firebase persistence handles this. If we are here, persistence failed or cleared.
-                            // Stored UID exists but Firebase auth is null
-                        }
+                    console.log('Firebase Auth State: No user');
 
+                    // Check if we have a stored UID to use while offline/reconnecting
+                    const storedUid = await AsyncStorage.getItem('uid');
+                    if (storedUid) {
+                        console.log('Using stored UID for offline mode:', storedUid);
+                        setUserId(storedUid);
+                    }
+
+                    try {
                         // Signing in anonymously...
                         // @ts-ignore
                         const cred = await signInAnonymously(firebaseAuth);
                         const uid = cred.user.uid;
                         // Signed in new anonymous user
+                        console.log('Signed in anonymously:', uid);
                         setUserId(uid);
                         await AsyncStorage.setItem('uid', uid);
                     } catch (error) {
-                        console.error('❌ Error during anonymous sign in:', error);
+                        console.error('❌ Error during anonymous sign in (likely offline):', error);
+                        // If we have storedUid, we continue using it.
+                        if (!storedUid) {
+                            // Only if we truly have no ID do we have a problem
+                            console.warn('No user ID available offline.');
+                        }
                     }
                 }
             });
@@ -178,7 +201,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const createGroup = async (name: string, userName: string) => {
-        if (!userId) return '';
+        if (!userId) {
+            alert("Erro: Usuário não autenticado. Tente reiniciar o app.");
+            return '';
+        }
         setIsLoading(true);
         try {
             const group = await storageService.createGroup(name, { id: userId, name: userName });
