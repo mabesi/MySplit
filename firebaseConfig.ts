@@ -16,7 +16,12 @@ const firebaseConfig = {
 
 // Initialize Firebase only if not already initialized
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-export const db = getFirestore(app);
+
+// Initialize Firestore with persistence
+import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
+export const db = initializeFirestore(app, {
+    localCache: persistentLocalCache()
+});
 
 // Initialize Auth with persistence
 // Check if auth is already initialized to avoid errors

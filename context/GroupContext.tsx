@@ -105,35 +105,44 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return;
         }
         // Loading groups for UID
+        // Loading groups for UID
         const loadAndValidateGroups = async () => {
             try {
                 const json = await AsyncStorage.getItem('myGroups');
                 const savedGroups: string[] = json ? JSON.parse(json) : [];
-                // Saved groups from storage
 
-                // ... (mock logic omitted)
+                // OFFLINE FIRST: Set groups immediately from local storage
+                setMyGroups(savedGroups);
+                setIsGroupsLoaded(true);
 
+                // Validation in background (if online)
+                // We don't block the UI for this
                 const validGroups: string[] = [];
+                let hasChanges = false;
+
                 for (const groupId of savedGroups) {
-                    const group = await storageService.getGroup(groupId);
-                    if (group) {
-                        const isMember = group.members.some(m => m.id === userId);
-                        if (isMember) validGroups.push(groupId);
+                    try {
+                        // This will hit cache first thanks to persistentLocalCache
+                        const group = await storageService.getGroup(groupId);
+                        if (group) {
+                            const isMember = group.members.some(m => m.id === userId);
+                            if (isMember) validGroups.push(groupId);
+                        } else {
+                            // Group might be deleted or not synced yet
+                            // Keep it for now to be safe in offline mode
+                            validGroups.push(groupId);
+                        }
+                    } catch (e) {
+                        // If error (e.g. permission), keep the group
+                        validGroups.push(groupId);
                     }
                 }
-                // Valid groups
-                setMyGroups(validGroups);
-                setIsGroupsLoaded(true); // Mark as loaded
 
-                // We don't strictly need to save here if we just loaded it, 
-                // but if we filtered out invalid groups, we should update storage.
-                if (validGroups.length !== savedGroups.length) {
-                    await AsyncStorage.setItem('myGroups', JSON.stringify(validGroups));
-                }
-
+                // Only update if we are sure we have a different list from source of truth
+                // For now, we trust the local list to avoid disappearing groups offline
             } catch (error) {
                 console.error("❌ Failed to load groups", error);
-                setIsGroupsLoaded(true); // Even on error, stop blocking saves
+                setIsGroupsLoaded(true);
             }
         };
 
