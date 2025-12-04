@@ -5,7 +5,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     name: "MySplit",
     slug: "mysplit",
     scheme: "mysplit",
-    version: "1.0.0",
+    version: "1.0.1",
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
@@ -21,7 +21,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     android: {
         package: "com.mabesi.mysplit",
-        versionCode: 1,
+        versionCode: 2,
         adaptiveIcon: {
             foregroundImage: "./assets/adaptive-icon.png",
             backgroundColor: "#0F172A"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image, KeyboardAvoidingView, Platform, ScrollView, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Modal, TextInput, Linking, Alert, KeyboardAvoidingView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useGroup } from '../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -65,7 +65,7 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
 
 export default function HomeScreen() {
     const router = useRouter();
-    const { createGroup, joinGroup, myGroups } = useGroup();
+    const { createGroup, joinGroup, myGroups, getGroup, addMember } = useGroup();
     const [name, setName] = useState('');
     const [userName, setUserName] = useState('');
     const [joinId, setJoinId] = useState('');
@@ -73,6 +73,7 @@ export default function HomeScreen() {
     const [locale, setLocale] = useState(i18n.locale);
     const insets = useSafeAreaInsets();
     const { joinGroupId } = useLocalSearchParams<{ joinGroupId?: string }>();
+    const [showJoinModal, setShowJoinModal] = useState(false); // Added this state
 
     // Handle deep link parameter
     useEffect(() => {
@@ -100,11 +101,91 @@ export default function HomeScreen() {
         }
     };
 
-    const handleJoin = async () => {
-        if (!joinId || !userName) return alert(i18n.t('fillAllFields'));
-        const success = await joinGroup(joinId, userName);
-        if (success) {
-            router.push(`/group/${joinId}`);
+    const handleJoinGroup = async () => {
+        if (!joinId || !userName) return; // Changed joinGroupId to joinId and joinUserName to userName
+
+        const result = await joinGroup(joinId, userName); // Changed joinGroupId to joinId and joinUserName to userName
+
+        if (result.success) {
+            setShowJoinModal(false);
+            setJoinId(''); // Changed setJoinGroupId to setJoinId
+            setUserName(''); // Changed setJoinUserName to setUserName
+            router.push(`/group/${joinId}`); // Changed joinGroupId to joinId
+        } else {
+            if (result.status === 'already_member') {
+                Alert.alert(
+                    i18n.t('alreadyMember') || 'Already a member',
+                    (i18n.t('alreadyMemberMessage') || 'You are already in this group as {name}. Do you want to add a new local member named {newName}?')
+                        .replace('{name}', result.memberName || '')
+                        .replace('{newName}', userName), // Changed joinUserName to userName
+                    [
+                        { text: i18n.t('cancel'), style: 'cancel' },
+                        {
+                            text: i18n.t('yes'),
+                            onPress: async () => {
+                                // Add local member logic
+                                // We need to be in the group context to add a member to it?
+                                // Actually addMember in context uses currentGroup.
+                                // But we are not in the group view yet.
+                                // So we need to set the current group first?
+                                // Or we can expose a method to add member to a specific group ID?
+                                // The current addMember implementation in context uses currentGroup.
+                                // Let's check context... it uses currentGroup.
+                                // So we might need to "enter" the group first or modify addMember.
+                                // For now, let's assume we can navigate to the group and then add?
+                                // Or better: The user is "already in the group", so we can just navigate them there
+                                // and THEN trigger the add member?
+                                // OR: We can temporarily set the group as current and add.
+
+                                // Wait, if I am already a member, I can just open the group.
+                                // But the user wants to add a NEW member (local).
+                                // If I navigate to group, I am viewing it as myself.
+                                // Then I can add a member.
+
+                                // Let's try: Navigate to group, then call addMember?
+                                // But addMember needs the group loaded.
+
+                                // Alternative: Update context to allow adding member by ID?
+                                // StorageService has addMember(groupId, ...).
+                                // Context's addMember uses currentGroup.
+
+                                // Let's just navigate to the group and show a success message?
+                                // But the requirement is "add a new member local with the name informed".
+                                // So we should do it.
+
+                                // Since we are in the "Home" screen, currentGroup is likely null.
+                                // We can use getGroup to fetch it, set it, and then add?
+                                // But joinGroup already does some of that if successful.
+
+                                // Let's modify the plan slightly:
+                                // 1. Navigate to group (since user is member).
+                                // 2. Pass a param to auto-trigger add member?
+                                // OR: Just call storage service directly? No, context is better.
+
+                                // Let's use the fact that we can just join the group (locally) since we are a member.
+                                // We can call joinGroup again? No, it returns already_member.
+
+                                // Let's just navigate to the group.
+                                // And we need to add the member.
+                                // Maybe we can use a special param in route?
+                                router.push({
+                                    pathname: `/group/${joinId}`, // Changed joinGroupId to joinId
+                                    params: { autoAddMemberName: userName } // Changed joinUserName to userName
+                                });
+                                setShowJoinModal(false);
+                                setJoinId(''); // Changed setJoinGroupId to setJoinId
+                                setUserName(''); // Changed setJoinUserName to setUserName
+                            }
+                        }
+                    ]
+                );
+            } else if (result.status === 'name_taken') {
+                Alert.alert(i18n.t('error'), i18n.t('nameTaken') || 'Name already taken');
+            } else if (result.status === 'group_not_found') {
+                Alert.alert(i18n.t('error'), i18n.t('groupNotFound') || 'Group not found');
+            } else {
+                Alert.alert(i18n.t('error'), i18n.t('joinError') || 'Error joining group');
+            }
         }
     };
 
@@ -112,10 +193,10 @@ export default function HomeScreen() {
         <ScreenWrapper useBottomInset={false}>
             <KeyboardAvoidingView
                 style={styles.container}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior="padding"
             >
                 <ScrollView
-                    contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 20 }]}
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                 >
@@ -237,14 +318,13 @@ export default function HomeScreen() {
                                                 autoCapitalize="none"
                                             />
                                         </View>
-                                        <TouchableOpacity style={styles.button} onPress={handleJoin}>
+                                        <TouchableOpacity style={styles.button} onPress={handleJoinGroup}>
                                             <LinearGradient colors={['#fba74f', '#e09646']} style={styles.gradientButton}>
                                                 <Text style={styles.buttonText}>{i18n.t('joinGroup')}</Text>
                                             </LinearGradient>
                                         </TouchableOpacity>
                                     </>
                                 )}
-
                             </View>
                         </View>
                     </View>

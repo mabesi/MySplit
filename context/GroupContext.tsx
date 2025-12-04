@@ -23,7 +23,7 @@ interface GroupContextType {
     isLoading: boolean;
     createGroup: (name: string, userName: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
-    joinGroup: (groupId: string, userName?: string) => Promise<boolean>;
+    joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'error' | 'group_not_found'; memberName?: string }>;
     addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number) => Promise<void>;
     addMember: (name: string) => Promise<void>;
     removeMember: (memberId: string) => Promise<void>;
@@ -225,19 +225,29 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const joinGroup = async (groupId: string, userName?: string) => {
-        if (!userId) return false;
+        if (!userId) return { success: false, status: 'error' as const };
         setIsLoading(true);
         try {
             const group = await storageService.getGroup(groupId);
             if (group) {
+                // Check if already a member
+                const existingMember = group.members.find(m => m.id === userId);
+                if (existingMember) {
+                    return {
+                        success: false,
+                        status: 'already_member' as const,
+                        memberName: existingMember.name
+                    };
+                }
+
                 // If userName provided, add as member (or update if exists)
                 if (userName) {
                     try {
                         await storageService.addMember(groupId, { id: userId, name: userName, status: 'pending' });
                     } catch (e: any) {
                         if (e.message === 'Name taken') {
-                            alert(i18n.t('nameTaken') || 'Name already taken by another user');
-                            return false;
+                            // alert(i18n.t('nameTaken') || 'Name already taken by another user');
+                            return { success: false, status: 'name_taken' as const };
                         }
                         throw e;
                     }
@@ -245,14 +255,14 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
                 setCurrentGroup(group);
                 addToMyGroups(group.id);
-                return true;
+                return { success: true, status: 'joined' as const };
             } else {
-                alert(i18n.t('groupNotFound'));
-                return false;
+                // alert(i18n.t('groupNotFound'));
+                return { success: false, status: 'group_not_found' as const };
             }
         } catch (error) {
             console.error("Error joining group:", error);
-            return false;
+            return { success: false, status: 'error' as const };
         } finally {
             setIsLoading(false);
         }

@@ -107,21 +107,55 @@ export class FirebaseService implements StorageService {
 
         if (!memberToRemove) return; // Member not found, nothing to do
 
-        // We can't easily use arrayRemove for expenses filtering, so we might need to read-modify-write for expenses
-        // But for members we can use arrayRemove IF we have the exact object. 
-        // Since we just fetched it, we can use it.
-
-        // However, we also need to remove expenses paid by this member.
-        // This operation is complex for atomic updateDoc without transactions if we want to filter expenses.
-        // But since we want offline support, we accept the read-modify-write pattern using updateDoc with the calculated new arrays.
-        // This is "safe enough" for offline, though theoretically prone to race conditions if someone else adds an expense at the exact same time.
-
         const updatedMembers = group.members.filter(m => m.id !== memberId);
         const updatedExpenses = group.expenses.filter(e => e.paidBy !== memberId);
 
         await updateDoc(groupRef, {
             members: updatedMembers,
             expenses: updatedExpenses,
+            updatedAt: Date.now()
+        });
+    }
+
+    async mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void> {
+        const groupRef = doc(db, 'groups', groupId);
+        const groupDoc = await getDoc(groupRef);
+
+        if (!groupDoc.exists()) throw new Error("Group not found");
+
+        const group = groupDoc.data() as Group;
+
+        // 1. Update expenses
+        const updatedExpenses = group.expenses.map(e => {
+            let updated = false;
+            let newPaidBy = e.paidBy;
+            let newSplitAmong = [...e.splitAmong];
+
+            if (e.paidBy === oldMemberId) {
+                newPaidBy = newMemberId;
+                updated = true;
+            }
+
+            if (newSplitAmong.includes(oldMemberId)) {
+                newSplitAmong = newSplitAmong.filter(id => id !== oldMemberId);
+                if (!newSplitAmong.includes(newMemberId)) {
+                    newSplitAmong.push(newMemberId);
+                }
+                updated = true;
+            }
+
+            if (updated) {
+                return { ...e, paidBy: newPaidBy, splitAmong: newSplitAmong };
+            }
+            return e;
+        });
+
+        // 2. Remove old member
+        const updatedMembers = group.members.filter(m => m.id !== oldMemberId);
+
+        await updateDoc(groupRef, {
+            expenses: updatedExpenses,
+            members: updatedMembers,
             updatedAt: Date.now()
         });
     }
@@ -133,7 +167,30 @@ export class FirebaseService implements StorageService {
         if (!groupDoc.exists()) throw new Error("Group not found");
 
         const group = groupDoc.data() as Group;
-        const updatedMembers = group.members.map(m =>
+        const memberToUpdate = group.members.find(m => m.id === memberId);
+
+        if (!memberToUpdate) return;
+
+        // Check for duplicate name if approving
+        if (status === 'active') {
+            const existingActiveMember = group.members.find(m =>
+                m.id !== memberId &&
+                m.status !== 'pending' &&
+                m.name.toLowerCase() === memberToUpdate.name.toLowerCase()
+            );
+
+            if (existingActiveMember) {
+                // MERGE!
+                console.log(`Merging member ${existingActiveMember.name} (${existingActiveMember.id}) into ${memberToUpdate.id}`);
+                await this.mergeMember(groupId, existingActiveMember.id, memberId);
+            }
+        }
+
+        // Re-fetch group to be safe after merge
+        const freshDoc = await getDoc(groupRef);
+        const freshGroup = freshDoc.data() as Group;
+
+        const updatedMembers = freshGroup.members.map(m =>
             m.id === memberId ? { ...m, status } : m
         );
 

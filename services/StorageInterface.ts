@@ -42,6 +42,11 @@ export interface StorageService {
     updateMemberStatus(groupId: string, memberId: string, status: 'active' | 'pending'): Promise<void>;
 
     /**
+     * Merges two members, transferring expenses and removing the old member.
+     */
+    mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void>;
+
+    /**
      * Deletes an expense from the group.
      */
     deleteExpense(groupId: string, expenseId: string): Promise<void>;

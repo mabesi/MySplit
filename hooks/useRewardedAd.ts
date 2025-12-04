@@ -1,18 +1,23 @@
 import { useEffect, useState, useRef } from 'react';
 import { RewardedAd, AdEventType, RewardedAdEventType, TestIds } from 'react-native-google-mobile-ads';
-
-// Use Test ID for development
-const adUnitId = __DEV__ ? TestIds.REWARDED : (process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || 'ca-app-pub-5835658762461800/5369787881');
+import { useConfig } from '../context/ConfigContext';
 
 export const useRewardedAd = () => {
+    const { realAds } = useConfig();
     const [loaded, setLoaded] = useState(false);
     const [rewardReceived, setRewardReceived] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const adShownRef = useRef(false);
     const rewardedRef = useRef<RewardedAd | null>(null);
 
+    // Determine Ad Unit ID based on config
+    const adUnitId = realAds
+        ? (process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || TestIds.REWARDED)
+        : TestIds.REWARDED;
+
     useEffect(() => {
         // Initializing rewarded ad...
+        console.log(`Initializing Rewarded Ad with ID: ${adUnitId} (Real Ads: ${realAds})`);
 
         // Create the ad instance
         const rewarded = RewardedAd.createForAdRequest(adUnitId, {
@@ -80,7 +85,7 @@ export const useRewardedAd = () => {
             unsubscribeError();
             rewardedRef.current = null;
         };
-    }, []);
+    }, [adUnitId]); // Re-run if adUnitId changes
 
     const showAd = () => {
         if (loaded && rewardedRef.current) {

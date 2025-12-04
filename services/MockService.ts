@@ -223,6 +223,32 @@ export class MockService implements StorageService {
         }
     }
 
+    async mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void> {
+        const group = this.groups.get(groupId);
+        if (!group) throw new Error("Group not found");
+
+        // 1. Update expenses paid by oldMemberId
+        group.expenses.forEach(e => {
+            if (e.paidBy === oldMemberId) {
+                e.paidBy = newMemberId;
+            }
+            // 2. Update splitAmong
+            if (e.splitAmong.includes(oldMemberId)) {
+                e.splitAmong = e.splitAmong.filter(id => id !== oldMemberId);
+                if (!e.splitAmong.includes(newMemberId)) {
+                    e.splitAmong.push(newMemberId);
+                }
+            }
+        });
+
+        // 3. Remove old member
+        group.members = group.members.filter(m => m.id !== oldMemberId);
+
+        group.updatedAt = Date.now();
+        this.groups.set(groupId, group);
+        this.notifySubscribers(groupId);
+    }
+
     async deleteExpense(groupId: string, expenseId: string): Promise<void> {
         const group = this.groups.get(groupId);
         if (!group) throw new Error("Group not found");

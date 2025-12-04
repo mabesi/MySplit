@@ -12,7 +12,7 @@ import { ScreenWrapper } from '../../components/ScreenWrapper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function GroupDetails() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
     const router = useRouter();
     const { currentGroup, joinGroup, addExpense, addMember, removeMember, deleteExpense, deleteGroup, updateGroupImage, approveMember, rejectMember, userId } = useGroup();
     const [activeTab, setActiveTab] = useState<'expenses' | 'balances'>('expenses');
@@ -35,6 +35,19 @@ export default function GroupDetails() {
             joinGroup(id);
         }
     }, [id]);
+
+    // Handle auto-add member from deep link or navigation
+    useEffect(() => {
+        if (autoAddMemberName && currentGroup && currentGroup.id === id) {
+            // Check if member already exists to avoid duplicates/errors
+            const exists = currentGroup.members.some(m => m.name.toLowerCase() === autoAddMemberName.toLowerCase());
+            if (!exists) {
+                addMember(autoAddMemberName);
+                // Clear param? We can't easily clear search params in expo-router without replace
+                router.setParams({ autoAddMemberName: undefined });
+            }
+        }
+    }, [autoAddMemberName, currentGroup]);
 
     // Set default splitAmong when opening modal
     useEffect(() => {

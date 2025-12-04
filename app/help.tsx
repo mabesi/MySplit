@@ -5,9 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import i18n from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
+import { useConfig } from '../context/ConfigContext';
 
 export default function HelpScreen() {
     const router = useRouter();
+    const { launched, updated } = useConfig();
     const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
     const toggleSection = (section: string) => {
@@ -55,7 +57,7 @@ export default function HelpScreen() {
             id: 'appInfo',
             icon: 'information-circle-outline',
             title: i18n.t('helpAppInfoTitle'),
-            content: i18n.t('helpAppInfoContent')
+            content: i18n.t('helpAppInfoContent', { launched, updated })
         }
     ];
 

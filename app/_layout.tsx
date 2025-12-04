@@ -1,5 +1,6 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GroupProvider } from '../context/GroupContext';
+import { ConfigProvider } from '../context/ConfigContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
@@ -59,16 +60,18 @@ export default function RootLayout() {
 
     return (
         <SafeAreaProvider>
-            <GroupProvider>
-                <Stack screenOptions={{
-                    headerStyle: { backgroundColor: '#35b288' }, // Primary Green
-                    headerTintColor: '#fff',
-                    headerTitleStyle: { fontWeight: 'bold' },
-                }}>
-                    <Stack.Screen name="index" options={{ headerShown: false }} />
-                    <Stack.Screen name="group/[id]" options={{ title: 'Group Details' }} />
-                </Stack>
-            </GroupProvider>
+            <ConfigProvider>
+                <GroupProvider>
+                    <Stack screenOptions={{
+                        headerStyle: { backgroundColor: '#35b288' }, // Primary Green
+                        headerTintColor: '#fff',
+                        headerTitleStyle: { fontWeight: 'bold' },
+                    }}>
+                        <Stack.Screen name="index" options={{ headerShown: false }} />
+                        <Stack.Screen name="group/[id]" options={{ title: 'Group Details' }} />
+                    </Stack>
+                </GroupProvider>
+            </ConfigProvider>
         </SafeAreaProvider>
     );
 }
