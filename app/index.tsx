@@ -21,14 +21,25 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
         let unsubscribe: (() => void) | undefined;
 
         const load = async () => {
-            // Initial load
-            const g = await getGroup(groupId);
-            setGroup(g);
+            try {
+                // Try to load initial data (works from cache if offline)
+                const g = await getGroup(groupId);
+                if (g) {
+                    setGroup(g);
+                }
+            } catch (error) {
+                console.log(`Could not load group ${groupId} initially (might be offline):`, error);
+                // Don't fail - subscription will provide data
+            }
 
-            // Subscribe for updates
-            unsubscribe = subscribeToGroup(groupId, (updatedGroup) => {
-                setGroup(updatedGroup);
-            });
+            // Subscribe for updates (works with cache)
+            try {
+                unsubscribe = subscribeToGroup(groupId, (updatedGroup) => {
+                    setGroup(updatedGroup);
+                });
+            } catch (error) {
+                console.error(`Failed to subscribe to group ${groupId}:`, error);
+            }
         };
         load();
 

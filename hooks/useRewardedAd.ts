@@ -3,7 +3,7 @@ import { RewardedAd, AdEventType, RewardedAdEventType, TestIds } from 'react-nat
 import { useConfig } from '../context/ConfigContext';
 
 export const useRewardedAd = () => {
-    const { realAds } = useConfig();
+    const { realAds, loading } = useConfig();
     const [loaded, setLoaded] = useState(false);
     const [rewardReceived, setRewardReceived] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -11,7 +11,8 @@ export const useRewardedAd = () => {
     const rewardedRef = useRef<RewardedAd | null>(null);
 
     // Determine Ad Unit ID based on config
-    const adUnitId = realAds
+    // ALWAYS use test ID if realAds is false or config is still loading
+    const adUnitId = (realAds && !loading)
         ? (process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || TestIds.REWARDED)
         : TestIds.REWARDED;
 
@@ -19,6 +20,7 @@ export const useRewardedAd = () => {
         console.log('🎬 Initializing rewarded ad...');
         console.log(`📱 Ad Unit ID: ${adUnitId}`);
         console.log(`🎯 Real Ads Mode: ${realAds}`);
+        console.log(`⏳ Config Loading: ${loading}`);
         console.log(`🔑 Env Ad ID: ${process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || 'NOT SET'}`);
 
         // Create the ad instance
@@ -89,7 +91,7 @@ export const useRewardedAd = () => {
             unsubscribeError();
             rewardedRef.current = null;
         };
-    }, [adUnitId, realAds]); // Re-run if adUnitId or realAds changes
+    }, [adUnitId, realAds, loading]); // Re-run if adUnitId, realAds, or loading changes
 
     const showAd = () => {
         if (loaded && rewardedRef.current) {
