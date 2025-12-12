@@ -6,6 +6,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
 import { Platform, Linking } from 'react-native';
 import mobileAds from 'react-native-google-mobile-ads';
+import i18n from '../i18n/translations';
 
 export default function RootLayout() {
     const router = useRouter();
@@ -68,7 +69,7 @@ export default function RootLayout() {
                         headerTitleStyle: { fontWeight: 'bold' },
                     }}>
                         <Stack.Screen name="index" options={{ headerShown: false }} />
-                        <Stack.Screen name="group/[id]" options={{ title: 'Group Details' }} />
+                        <Stack.Screen name="group/[id]" options={{ title: i18n.t('groupDetails') }} />
                     </Stack>
                 </GroupProvider>
             </ConfigProvider>

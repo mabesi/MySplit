@@ -10,6 +10,8 @@ import * as Clipboard from 'expo-clipboard';
 import i18n from '../../i18n/translations';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useSyncStatus } from '../../hooks/useSyncStatus';
+import { SyncIndicator } from '../../components/SyncIndicator';
 
 export default function GroupDetails() {
     const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
@@ -20,6 +22,10 @@ export default function GroupDetails() {
     const [showAddExpense, setShowAddExpense] = useState(false);
     const [isFabExpanded, setIsFabExpanded] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
+
+    // Sync status indicator
+    const syncStatus = useSyncStatus(id || null);
+
     // Add Member Form State
     const [newMemberName, setNewMemberName] = useState('');
 
@@ -181,13 +187,16 @@ export default function GroupDetails() {
                         <Ionicons name="copy-outline" size={12} color="#6366F1" style={{ marginLeft: 4 }} />
                     </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => router.push('/group/settings')} style={styles.settingsButton}>
-                    <Ionicons name="settings-outline" size={24} color="#F8FAFC" />
-                    {/* Show dot if there are pending requests */}
-                    {currentGroup.ownerId === userId && currentGroup.members.some(m => m.status === 'pending') && (
-                        <View style={styles.notificationDot} />
-                    )}
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <SyncIndicator status={syncStatus} variant="icon" size="medium" />
+                    <TouchableOpacity onPress={() => router.push('/group/settings')} style={styles.settingsButton}>
+                        <Ionicons name="settings-outline" size={24} color="#F8FAFC" />
+                        {/* Show dot if there are pending requests */}
+                        {currentGroup.ownerId === userId && currentGroup.members.some(m => m.status === 'pending') && (
+                            <View style={styles.notificationDot} />
+                        )}
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* ... (Group Info) ... */}
@@ -503,6 +512,7 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
     idContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
     headerId: { fontSize: 11, color: '#94A3B8' },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     settingsButton: { padding: 4 },
     groupInfoContainer: {
         flexDirection: 'row',

@@ -100,7 +100,14 @@ const i18n = new I18n({
         watchAd: "Watch Ad to Support",
         loadingAd: "Loading Ad...",
         adThankYou: "Thank you for your amazing support! 💚",
-        or: "OR"
+        or: "OR",
+        synced: "Synced",
+        syncing: "Syncing...",
+        offline: "Offline",
+        uploading: "Uploading...",
+        yes: "Yes",
+        error: "Error",
+        groupDetails: "Group Details"
     },
     es: {
         appName: "MySplit",
@@ -200,14 +207,21 @@ const i18n = new I18n({
         watchAd: "Ver Anuncio para Apoyar",
         loadingAd: "Cargando Anuncio...",
         adThankYou: "¡Gracias por tu increíble apoyo! 💚",
-        or: "O"
+        or: "O",
+        synced: "Sincronizado",
+        syncing: "Sincronizando...",
+        offline: "Sin conexión",
+        uploading: "Subiendo...",
+        yes: "Sí",
+        error: "Error",
+        groupDetails: "Detalles del Grupo"
     },
     pt: {
         appName: "MySplit",
         appSubtitle: "Gerencie despesas compartilhadas facilmente",
         create: "Criar",
         join: "Entrar",
-        groupNamePlaceholder: "Nome do Grupo (ex. Viagem)",
+        groupNamePlaceholder: "Nome do Grupo (ex. Férias Nordeste)",
         yourNamePlaceholder: "Seu Nome",
         namePlaceholder: "Nome",
         groupIdPlaceholder: "ID do Grupo",
@@ -300,7 +314,14 @@ const i18n = new I18n({
         watchAd: "Assistir Anúncio para Apoiar",
         loadingAd: "Carregando Anuncio...",
         adThankYou: "Obrigado pelo seu apoio incrível! 💚",
-        or: "OU"
+        or: "OU",
+        synced: "Sincronizado",
+        syncing: "Sincronizando...",
+        offline: "Offline",
+        uploading: "Enviando...",
+        yes: "Sim",
+        error: "Erro",
+        groupDetails: "Detalhes do Grupo"
     }
 });
 

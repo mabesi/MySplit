@@ -233,6 +233,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 // Check if already a member
                 const existingMember = group.members.find(m => m.id === userId);
                 if (existingMember) {
+                    // Set current group even if already a member
+                    setCurrentGroup(group);
+                    addToMyGroups(group.id);
                     return {
                         success: false,
                         status: 'already_member' as const,
@@ -244,6 +247,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if (userName) {
                     try {
                         await storageService.addMember(groupId, { id: userId, name: userName, status: 'pending' });
+                        // Re-fetch the group to get updated member list
+                        const updatedGroup = await storageService.getGroup(groupId);
+                        if (updatedGroup) {
+                            setCurrentGroup(updatedGroup);
+                        }
                     } catch (e: any) {
                         if (e.message === 'Name taken') {
                             // alert(i18n.t('nameTaken') || 'Name already taken by another user');
@@ -251,9 +259,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         }
                         throw e;
                     }
+                } else {
+                    // No userName provided, just set the group
+                    setCurrentGroup(group);
                 }
 
-                setCurrentGroup(group);
                 addToMyGroups(group.id);
                 return { success: true, status: 'joined' as const };
             } else {

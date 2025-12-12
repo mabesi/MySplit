@@ -1,5 +1,4 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
 // @ts-ignore
 import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,11 +16,9 @@ const firebaseConfig = {
 // Initialize Firebase only if not already initialized
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Initialize Firestore with persistence
-import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
-export const db = initializeFirestore(app, {
-    localCache: persistentLocalCache()
-});
+// Initialize Firestore with default cache (persistentLocalCache not supported in Expo Go)
+import { getFirestore } from 'firebase/firestore';
+export const db = getFirestore(app);
 
 // Initialize Auth with persistence
 // Check if auth is already initialized to avoid errors

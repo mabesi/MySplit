@@ -16,6 +16,27 @@ export default function HelpScreen() {
         setExpandedSection(expandedSection === section ? null : section);
     };
 
+    const formatDate = (dateString: string | undefined) => {
+        if (!dateString) return '';
+        try {
+            // Create date object and adjust for timezone if necessary, 
+            // but usually simple date string "YYYY-MM-DD" works well with new Date()
+            // However, to ensure we don't get timezone shifts, we can treat it as UTC or just split it.
+            // Let's rely on standard Date parsing for now.
+            const date = new Date(dateString);
+            return date.toLocaleDateString(i18n.locale, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+        } catch (e) {
+            return dateString;
+        }
+    };
+
+    const formattedLaunched = formatDate(launched);
+    const formattedUpdated = formatDate(updated);
+
     const sections = [
         {
             id: 'createGroup',
@@ -57,7 +78,7 @@ export default function HelpScreen() {
             id: 'appInfo',
             icon: 'information-circle-outline',
             title: i18n.t('helpAppInfoTitle'),
-            content: i18n.t('helpAppInfoContent', { launched, updated })
+            content: i18n.t('helpAppInfoContent', { launched: formattedLaunched, updated: formattedUpdated })
         }
     ];
 

@@ -6,14 +6,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import i18n from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSyncStatus } from '../hooks/useSyncStatus';
+import { SyncIndicator } from '../components/SyncIndicator';
 
 // Helper component for each group in the grid
 const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
     const { getGroup, joinGroup, subscribeToGroup } = useGroup();
     const router = useRouter();
     const [group, setGroup] = useState<any>(null);
+    const syncStatus = useSyncStatus(groupId);
 
     useEffect(() => {
         let unsubscribe: (() => void) | undefined;
@@ -46,6 +48,11 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
             }}
         >
             <LinearGradient colors={['#334155', '#1E293B']} style={styles.groupGradient}>
+                {/* Sync Status Badge */}
+                <View style={styles.syncBadgeContainer}>
+                    <SyncIndicator status={syncStatus} variant="badge" />
+                </View>
+
                 {group.imageUrl ? (
                     <Image source={{ uri: group.imageUrl, cache: 'reload' }} style={styles.groupImage} key={group.imageUrl} />
                 ) : (
@@ -485,6 +492,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         fontSize: 13,
         textAlign: 'center',
+    },
+    syncBadgeContainer: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        zIndex: 10,
     },
     card: {
         backgroundColor: '#1E293B',
