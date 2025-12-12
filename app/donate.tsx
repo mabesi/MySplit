@@ -6,9 +6,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import i18n from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useRewardedAd } from '../hooks/useRewardedAd';
+import { useConfig } from '../context/ConfigContext';
 
 export default function DonateScreen() {
     const router = useRouter();
+    const { realAds } = useConfig();
     const { loaded, rewardReceived, showAd, resetReward } = useRewardedAd();
 
     const handleDonate = () => {
@@ -78,27 +80,32 @@ export default function DonateScreen() {
                     </LinearGradient>
                 </TouchableOpacity>
 
-                <View style={styles.separator}>
-                    <View style={styles.separatorLine} />
-                    <Text style={styles.separatorText}>{i18n.t('or')}</Text>
-                    <View style={styles.separatorLine} />
-                </View>
+                {/* Only show ad option if realAds is enabled */}
+                {realAds && (
+                    <>
+                        <View style={styles.separator}>
+                            <View style={styles.separatorLine} />
+                            <Text style={styles.separatorText}>{i18n.t('or')}</Text>
+                            <View style={styles.separatorLine} />
+                        </View>
 
-                <TouchableOpacity
-                    style={[styles.adButton, !loaded && styles.adButtonDisabled]}
-                    onPress={handleWatchAd}
-                    disabled={!loaded}
-                >
-                    <LinearGradient
-                        colors={loaded ? ['#10B981', '#059669'] : ['#475569', '#334155']}
-                        style={styles.gradientButton}
-                    >
-                        <Ionicons name="play-circle" size={24} color="white" style={{ marginRight: 8 }} />
-                        <Text style={styles.adButtonText}>
-                            {loaded ? i18n.t('watchAd') : i18n.t('loadingAd')}
-                        </Text>
-                    </LinearGradient>
-                </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.adButton, !loaded && styles.adButtonDisabled]}
+                            onPress={handleWatchAd}
+                            disabled={!loaded}
+                        >
+                            <LinearGradient
+                                colors={loaded ? ['#10B981', '#059669'] : ['#475569', '#334155']}
+                                style={styles.gradientButton}
+                            >
+                                <Ionicons name="play-circle" size={24} color="white" style={{ marginRight: 8 }} />
+                                <Text style={styles.adButtonText}>
+                                    {loaded ? i18n.t('watchAd') : i18n.t('loadingAd')}
+                                </Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </>
+                )}
             </View>
         </ScreenWrapper>
     );
