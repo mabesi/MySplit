@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
-import { RewardedAd, AdEventType, RewardedAdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { RewardedAd, AdEventType, RewardedAdEventType } from 'react-native-google-mobile-ads';
 import { useConfig } from '../context/ConfigContext';
+
+// Official Google test ad ID for rewarded ads
+// This is more reliable than TestIds.REWARDED
+const TEST_AD_ID = 'ca-app-pub-3940256099942544/5224354917';
 
 export const useRewardedAd = () => {
     const { realAds, loading } = useConfig();
@@ -13,8 +17,8 @@ export const useRewardedAd = () => {
     // Determine Ad Unit ID based on config
     // ALWAYS use test ID if realAds is false or config is still loading
     const adUnitId = (realAds && !loading)
-        ? (process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || TestIds.REWARDED)
-        : TestIds.REWARDED;
+        ? (process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || TEST_AD_ID)
+        : TEST_AD_ID;
 
     useEffect(() => {
         console.log('🎬 Initializing rewarded ad...');

@@ -43,23 +43,47 @@ export class FirebaseService implements StorageService {
     }
 
     async getGroup(groupId: string): Promise<Group | null> {
+        console.log(`📥 FirebaseService: Getting group ${groupId}...`);
         const docRef = doc(db, 'groups', groupId);
         const docSnap = await getDoc(docRef);
+
+        console.log(`📊 Group ${groupId}:`, {
+            exists: docSnap.exists(),
+            fromCache: docSnap.metadata.fromCache,
+            hasPendingWrites: docSnap.metadata.hasPendingWrites
+        });
 
         if (docSnap.exists()) {
             return docSnap.data() as Group;
         } else {
+            console.warn(`⚠️ Group ${groupId} not found`);
             return null;
         }
     }
 
-    subscribeToGroup(groupId: string, onUpdate: (group: Group) => void): () => void {
-        const docRef = doc(db, 'groups', groupId);
-        const unsubscribe = onSnapshot(docRef, (doc) => {
-            if (doc.exists()) {
-                onUpdate(doc.data() as Group);
+    subscribeToGroup(groupId: string, callback: (group: Group) => void): () => void {
+        console.log(`🔔 FirebaseService: Subscribing to group ${groupId}...`);
+        const groupRef = doc(db, 'groups', groupId);
+
+        const unsubscribe = onSnapshot(
+            groupRef,
+            { includeMetadataChanges: true },
+            (snapshot) => {
+                console.log(`🔔 Group ${groupId} update:`, {
+                    exists: snapshot.exists(),
+                    fromCache: snapshot.metadata.fromCache,
+                    hasPendingWrites: snapshot.metadata.hasPendingWrites
+                });
+
+                if (snapshot.exists()) {
+                    callback(snapshot.data() as Group);
+                }
+            },
+            (error) => {
+                console.error(`❌ Subscription error for group ${groupId}:`, error);
             }
-        });
+        );
+
         return unsubscribe;
     }
 
