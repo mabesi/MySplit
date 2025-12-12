@@ -247,11 +247,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if (userName) {
                     try {
                         await storageService.addMember(groupId, { id: userId, name: userName, status: 'pending' });
-                        // Re-fetch the group to get updated member list
-                        const updatedGroup = await storageService.getGroup(groupId);
-                        if (updatedGroup) {
-                            setCurrentGroup(updatedGroup);
-                        }
+                        // Don't re-fetch manually - the subscription will update currentGroup automatically
+                        // This works both online and offline thanks to Firestore cache
+                        setCurrentGroup(group); // Set initial group, subscription will update with new member
                     } catch (e: any) {
                         if (e.message === 'Name taken') {
                             // alert(i18n.t('nameTaken') || 'Name already taken by another user');

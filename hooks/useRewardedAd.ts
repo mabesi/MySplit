@@ -16,8 +16,10 @@ export const useRewardedAd = () => {
         : TestIds.REWARDED;
 
     useEffect(() => {
-        // Initializing rewarded ad...
-        console.log(`Initializing Rewarded Ad with ID: ${adUnitId} (Real Ads: ${realAds})`);
+        console.log('🎬 Initializing rewarded ad...');
+        console.log(`📱 Ad Unit ID: ${adUnitId}`);
+        console.log(`🎯 Real Ads Mode: ${realAds}`);
+        console.log(`🔑 Env Ad ID: ${process.env.EXPO_PUBLIC_ADMOB_REWARDED_ID || 'NOT SET'}`);
 
         // Create the ad instance
         const rewarded = RewardedAd.createForAdRequest(adUnitId, {
@@ -27,7 +29,7 @@ export const useRewardedAd = () => {
         rewardedRef.current = rewarded;
 
         const unsubscribeLoaded = rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
-            // Ad loaded successfully
+            console.log('✅ Ad loaded successfully');
             setLoaded(true);
             setError(null);
         });
@@ -35,18 +37,18 @@ export const useRewardedAd = () => {
         const unsubscribeEarned = rewarded.addAdEventListener(
             RewardedAdEventType.EARNED_REWARD,
             reward => {
-                // User earned reward
+                console.log('🎁 User earned reward:', reward);
                 setRewardReceived(true);
             },
         );
 
         const unsubscribeClosed = rewarded.addAdEventListener(AdEventType.CLOSED, () => {
-            // Ad closed
+            console.log('🚪 Ad closed');
             setLoaded(false);
 
             // If ad was shown, mark reward as received
             if (adShownRef.current) {
-                // Setting reward as received
+                console.log('✅ Setting reward as received');
                 // Use setTimeout to ensure state update happens after ad closes
                 setTimeout(() => {
                     setRewardReceived(true);
@@ -55,45 +57,48 @@ export const useRewardedAd = () => {
             }
 
             // Reload ad for next time
-            // Reloading ad...
+            console.log('🔄 Reloading ad...');
             rewarded.load();
         });
 
         const unsubscribeError = rewarded.addAdEventListener(AdEventType.ERROR, (error) => {
             console.error('❌ Ad error:', error);
+            console.error('❌ Error code:', (error as any).code);
+            console.error('❌ Error message:', error.message);
             setError('Failed to load ad');
             setLoaded(false);
             // Try to reload after error
             setTimeout(() => {
-                // Retrying ad load after error...
+                console.log('🔄 Retrying ad load after error...');
                 rewarded.load();
             }, 5000);
         });
 
         // Start loading the ad after a small delay to ensure AdMob is ready
         setTimeout(() => {
-            // Starting to load ad...
+            console.log('📥 Starting to load ad...');
             rewarded.load();
         }, 1000);
 
         // Unsubscribe from events on unmount
         return () => {
-            // Cleaning up ad listeners
+            console.log('🧹 Cleaning up ad listeners');
             unsubscribeLoaded();
             unsubscribeEarned();
             unsubscribeClosed();
             unsubscribeError();
             rewardedRef.current = null;
         };
-    }, [adUnitId]); // Re-run if adUnitId changes
+    }, [adUnitId, realAds]); // Re-run if adUnitId or realAds changes
 
     const showAd = () => {
         if (loaded && rewardedRef.current) {
-            // Showing ad...
+            console.log('🎬 Showing ad...');
             adShownRef.current = true; // Mark that we're showing the ad
             rewardedRef.current.show();
         } else {
-            // Ad not loaded yet
+            console.warn('⚠️ Ad not loaded yet or ref is null');
+            console.warn(`⚠️ Loaded: ${loaded}, Ref: ${rewardedRef.current ? 'exists' : 'null'}`);
         }
     };
 

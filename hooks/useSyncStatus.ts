@@ -1,15 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
+import NetInfo from '@react-native-community/netinfo';
 
 export type SyncStatus = 'synced' | 'pending' | 'offline';
 
 export function useSyncStatus(groupId: string | null): SyncStatus {
     const [status, setStatus] = useState<SyncStatus>('synced');
+    const [isOnline, setIsOnline] = useState(true);
     const unsubscribeRef = useRef<(() => void) | null>(null);
+
+    // Monitor network connectivity
+    useEffect(() => {
+        const unsubscribe = NetInfo.addEventListener(state => {
+            setIsOnline(state.isConnected ?? false);
+        });
+
+        return () => unsubscribe();
+    }, []);
 
     useEffect(() => {
         if (!groupId) {
+            setStatus('offline');
+            return;
+        }
+
+        // If no network, show offline immediately
+        if (!isOnline) {
             setStatus('offline');
             return;
         }
@@ -27,10 +44,17 @@ export function useSyncStatus(groupId: string | null): SyncStatus {
                             return;
                         }
 
+                        // Check network status first
+                        if (!isOnline) {
+                            setStatus('offline');
+                            return;
+                        }
+
                         if (snapshot.metadata.hasPendingWrites) {
                             setStatus('pending');
-                        } else if (snapshot.metadata.fromCache) {
-                            setStatus('offline');
+                        } else if (snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) {
+                            // Only show offline if from cache AND no network
+                            setStatus(isOnline ? 'synced' : 'offline');
                         } else {
                             setStatus('synced');
                         }
@@ -53,7 +77,7 @@ export function useSyncStatus(groupId: string | null): SyncStatus {
                 unsubscribeRef.current = null;
             }
         };
-    }, [groupId]);
+    }, [groupId, isOnline]);
 
     return status;
 }
