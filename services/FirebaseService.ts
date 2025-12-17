@@ -18,8 +18,8 @@ const generateId = () => Math.random().toString(36).substring(2, 15) + Math.rand
 
 export class FirebaseService implements StorageService {
 
-    async createGroup(name: string, creator: { id: string; name: string; email?: string }): Promise<Group> {
-        const groupId = generateId();
+    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group> {
+        const groupId = customId || generateId();
         const creatorId = creator.id; // Use provided ID
 
         const newGroup: Group = {
@@ -87,12 +87,12 @@ export class FirebaseService implements StorageService {
         return unsubscribe;
     }
 
-    async addExpense(groupId: string, expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<void> {
+    async addExpense(groupId: string, expenseData: Omit<Expense, 'id' | 'createdAt'> | Expense): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
 
         const newExpense: Expense = {
             ...expenseData,
-            id: generateId(),
+            id: 'id' in expenseData ? (expenseData as any).id : generateId(),
             createdAt: Date.now()
         };
 
@@ -256,5 +256,17 @@ export class FirebaseService implements StorageService {
     async uploadImage(image: string, path: string): Promise<string> {
         // Image is already a Base64 Data URI from the picker
         return image;
+    }
+
+    async getGroupMetadata(groupId: string): Promise<{ hasPendingWrites: boolean, fromCache: boolean } | null> {
+        const docRef = doc(db, 'groups', groupId);
+        const docSnap = await getDoc(docRef);
+
+        if (!docSnap.exists()) return null;
+
+        return {
+            hasPendingWrites: docSnap.metadata.hasPendingWrites,
+            fromCache: docSnap.metadata.fromCache
+        };
     }
 }

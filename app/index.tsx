@@ -83,7 +83,7 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
 
 export default function HomeScreen() {
     const router = useRouter();
-    const { createGroup, joinGroup, myGroups, getGroup, addMember } = useGroup();
+    const { createGroup, joinGroup, myGroups, getGroup, addMember, isLoading } = useGroup();
     const [name, setName] = useState('');
     const [userName, setUserName] = useState('');
     const [joinId, setJoinId] = useState('');
@@ -307,9 +307,15 @@ export default function HomeScreen() {
                                                 maxLength={16}
                                             />
                                         </View>
-                                        <TouchableOpacity style={styles.button} onPress={handleCreate}>
+                                        <TouchableOpacity
+                                            style={[styles.button, isLoading && { opacity: 0.7 }]}
+                                            onPress={handleCreate}
+                                            disabled={isLoading}
+                                        >
                                             <LinearGradient colors={['#35b288', '#22a699']} style={styles.gradientButton}>
-                                                <Text style={styles.buttonText}>{i18n.t('createGroup')}</Text>
+                                                <Text style={styles.buttonText}>
+                                                    {isLoading ? 'Creating...' : i18n.t('createGroup')}
+                                                </Text>
                                             </LinearGradient>
                                         </TouchableOpacity>
                                     </>
@@ -336,9 +342,15 @@ export default function HomeScreen() {
                                                 autoCapitalize="none"
                                             />
                                         </View>
-                                        <TouchableOpacity style={styles.button} onPress={handleJoinGroup}>
+                                        <TouchableOpacity
+                                            style={[styles.button, isLoading && { opacity: 0.7 }]}
+                                            onPress={handleJoinGroup}
+                                            disabled={isLoading}
+                                        >
                                             <LinearGradient colors={['#fba74f', '#e09646']} style={styles.gradientButton}>
-                                                <Text style={styles.buttonText}>{i18n.t('joinGroup')}</Text>
+                                                <Text style={styles.buttonText}>
+                                                    {isLoading ? 'Joining...' : i18n.t('joinGroup')}
+                                                </Text>
                                             </LinearGradient>
                                         </TouchableOpacity>
                                     </>

@@ -7,7 +7,7 @@ export interface StorageService {
     /**
      * Creates a new group and returns it.
      */
-    createGroup(name: string, creator: { id: string; name: string; email?: string }): Promise<Group>;
+    createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group>;
 
     /**
      * Retrieves a group by ID.
@@ -24,7 +24,7 @@ export interface StorageService {
      * Adds an expense to the group.
      * Uses transactions to ensure data integrity.
      */
-    addExpense(groupId: string, expense: Omit<Expense, 'id' | 'createdAt'>): Promise<void>;
+    addExpense(groupId: string, expense: Omit<Expense, 'id' | 'createdAt'> | Expense): Promise<void>;
 
     /**
      * Adds a member to the group.
@@ -64,5 +64,11 @@ export interface StorageService {
     /**
      * Uploads an image and returns the download URL.
      */
-    uploadImage(uri: string, path: string): Promise<string>;
+    uploadImage(image: string, path: string): Promise<string>;
+
+    /**
+     * Gets metadata about the group's sync status.
+     * Returns null if group doesn't exist.
+     */
+    getGroupMetadata(groupId: string): Promise<{ hasPendingWrites: boolean, fromCache: boolean } | null>;
 }

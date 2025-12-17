@@ -37,7 +37,8 @@ export default function GroupDetails() {
     const [splitAmong, setSplitAmong] = useState<string[]>([]);
 
     useEffect(() => {
-        if (id && (!currentGroup || currentGroup.id !== id)) {
+        if (id) {
+            // Always refresh group data on mount to ensure we see pending edits/synced data
             joinGroup(id);
         }
     }, [id]);

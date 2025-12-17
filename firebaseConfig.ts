@@ -17,11 +17,14 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 // Initialize Firestore with offline persistence for React Native
-import { initializeFirestore, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
+import { initializeFirestore, CACHE_SIZE_UNLIMITED, persistentLocalCache, persistentSingleTabManager } from 'firebase/firestore';
 
 export const db = initializeFirestore(app, {
     experimentalForceLongPolling: true, // Required for React Native
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED, // Enable unlimited cache for offline support
+    localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager(undefined),
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED
+    }),
 });
 
 // Initialize Auth with persistence

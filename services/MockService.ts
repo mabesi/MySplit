@@ -110,11 +110,11 @@ export class MockService implements StorageService {
         subs.forEach(cb => cb(group));
     }
 
-    async createGroup(name: string, creator: { id: string; name: string; email?: string }): Promise<Group> {
+    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group> {
         // Generate ID: name-random
         const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         const randomSuffix = Math.random().toString(36).substring(2, 6);
-        const groupId = `${slug}-${randomSuffix}`;
+        const groupId = customId || `${slug}-${randomSuffix}`;
 
         const newGroup: Group = {
             id: groupId,
@@ -156,12 +156,12 @@ export class MockService implements StorageService {
         };
     }
 
-    async addExpense(groupId: string, expenseData: Omit<Expense, 'id' | 'createdAt'>): Promise<void> {
+    async addExpense(groupId: string, expenseData: Omit<Expense, 'id' | 'createdAt'> | Expense): Promise<void> {
         const group = this.groups.get(groupId);
         if (!group) return;
 
         const newExpense: Expense = {
-            id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            id: 'id' in expenseData ? (expenseData as any).id : `exp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
             ...expenseData,
             createdAt: Date.now()
         };
@@ -272,7 +272,13 @@ export class MockService implements StorageService {
         this.notifySubscribers(groupId);
     }
 
-    async uploadImage(uri: string, path: string): Promise<string> {
-        return uri; // Mock just returns the local URI
+    async uploadImage(image: string, path: string): Promise<string> {
+        return image; // Mock upload
+    }
+
+    async getGroupMetadata(groupId: string): Promise<{ hasPendingWrites: boolean, fromCache: boolean } | null> {
+        const group = this.groups.get(groupId);
+        if (!group) return null;
+        return { hasPendingWrites: false, fromCache: false };
     }
 }
