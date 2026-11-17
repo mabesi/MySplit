@@ -24,8 +24,7 @@ export default function RootLayout() {
             });
 
         if (Platform.OS === 'android') {
-            NavigationBar.setPositionAsync('absolute');
-            NavigationBar.setBackgroundColorAsync('#ffffff00');
+            NavigationBar.setStyle('dark');
         }
     }, []);
 

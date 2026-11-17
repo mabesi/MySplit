@@ -9,13 +9,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "dark",
-    newArchEnabled: true,
-    jsEngine: 'hermes',
-    splash: {
-        image: "./assets/splash-icon.png",
-        resizeMode: "contain",
-        backgroundColor: "#0F172A"
-    },
     ios: {
         supportsTablet: true
     },
@@ -25,14 +18,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         adaptiveIcon: {
             foregroundImage: "./assets/adaptive-icon.png",
             backgroundColor: "#0F172A"
-        },
-        edgeToEdgeEnabled: true
+        }
     },
     web: {
         favicon: "./assets/favicon.png"
     },
     plugins: [
         "expo-router",
+        "expo-font",
+        [
+            "expo-splash-screen",
+            {
+                image: "./assets/splash-icon.png",
+                resizeMode: "contain",
+                backgroundColor: "#0F172A"
+            }
+        ],
         [
             "react-native-google-mobile-ads",
             {

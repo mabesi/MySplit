@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet, Platform, StatusBar, ViewStyle } from 'react-native';
+import { View, StyleSheet, Platform, ViewStyle } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,20 +17,13 @@ export const ScreenWrapper: React.FC<ScreenWrapperProps> = ({ children, style, u
 
     useEffect(() => {
         if (Platform.OS === 'android') {
-            // Make navigation bar transparent and content draw behind it
-            NavigationBar.setPositionAsync('absolute');
-            NavigationBar.setBackgroundColorAsync('#00000000');
-            NavigationBar.setButtonStyleAsync('light'); // White icons
+            NavigationBar.setStyle('dark');
         }
     }, []);
 
     return (
         <View style={[styles.container, style]}>
-            <StatusBar
-                barStyle="light-content"
-                backgroundColor="transparent"
-                translucent={true}
-            />
+            <StatusBar style="light" />
 
             {/* Background Gradient */}
             <LinearGradient

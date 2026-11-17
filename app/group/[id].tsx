@@ -178,8 +178,8 @@ export default function GroupDetails() {
                 <View style={styles.headerContent}>
                     <Text style={styles.headerTitle}>{currentGroup.name}</Text>
                     <TouchableOpacity
-                        onPress={() => {
-                            Clipboard.setString(currentGroup.id);
+                        onPress={async () => {
+                            await Clipboard.setStringAsync(currentGroup.id);
                             Alert.alert(i18n.t('copied') || 'Copied!', i18n.t('groupIdCopied') || 'Group ID copied to clipboard');
                         }}
                         style={styles.idContainer}
