@@ -5,23 +5,37 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
 import { Platform, Linking } from 'react-native';
-import mobileAds from 'react-native-google-mobile-ads';
 import i18n from '../i18n/translations';
+
+// Safe native module loader for mobileAds
+const getMobileAds = () => {
+    if (Platform.OS !== 'web') {
+        try {
+            return require('react-native-google-mobile-ads').default;
+        } catch {
+            return null;
+        }
+    }
+    return null;
+};
 
 export default function RootLayout() {
     const router = useRouter();
     const segments = useSegments();
 
     useEffect(() => {
-        // Initialize Google Mobile Ads
-        mobileAds()
-            .initialize()
-            .then(adapterStatuses => {
-                // AdMob initialized
-            })
-            .catch(error => {
-                console.error('❌ AdMob initialization error:', error);
-            });
+        // Initialize Google Mobile Ads only on native platforms where supported
+        const mobileAds = getMobileAds();
+        if (mobileAds) {
+            mobileAds()
+                .initialize()
+                .then((adapterStatuses: any) => {
+                    // AdMob initialized
+                })
+                .catch((error: any) => {
+                    console.error('❌ AdMob initialization error:', error);
+                });
+        }
 
         if (Platform.OS === 'android') {
             NavigationBar.setStyle('dark');
