@@ -30,7 +30,8 @@ interface GroupContextType {
     updateGroupImage: (url: string) => Promise<void>;
     approveMember: (memberId: string) => Promise<void>;
     rejectMember: (memberId: string) => Promise<void>;
-    subscribeToGroup: (groupId: string, onUpdate: (group: Group) => void) => () => void;
+    refreshMyGroups: () => Promise<void>;
+    subscribeToGroup: (groupId: string, onUpdate: (group: Group | null) => void) => () => void;
 }
 
 const GroupContext = createContext<GroupContextType | undefined>(undefined);
@@ -41,9 +42,20 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [userId, setUserId] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
     const [dirtyGroups, setDirtyGroups] = useState<Set<string>>(new Set());
+    const isGroupsLoaded = React.useRef(false);
 
-    // Track active subscriptions to avoid duplicates
-    const activeSubscriptions = React.useRef<Map<string, () => void>>(new Map());
+    // Track active listeners and storageService unsubscribers per groupId
+    const groupListeners = React.useRef<Map<string, Set<(group: Group | null) => void>>>(new Map());
+    const groupUnsubscribers = React.useRef<Map<string, () => void>>(new Map());
+
+    // Helper to persist myGroups safely
+    const persistMyGroups = async (groups: string[]) => {
+        try {
+            await AsyncStorage.setItem('myGroups', JSON.stringify(groups));
+        } catch (e) {
+            console.error('[Groups] Failed to persist myGroups:', e);
+        }
+    };
 
     // ========== AUTH SETUP ==========
     useEffect(() => {
@@ -97,6 +109,55 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, []);
 
     // ========== MY GROUPS MANAGEMENT ==========
+    const refreshMyGroups = async (groupsToCheck?: string[]) => {
+        try {
+            const json = await AsyncStorage.getItem('myGroups');
+            const savedGroups: string[] = json ? JSON.parse(json) : [];
+            const localGroups = await LocalGroupStore.getAllGroups();
+            const localGroupIds = Object.keys(localGroups);
+            const sourceGroups = groupsToCheck || Array.from(new Set([...savedGroups, ...localGroupIds, ...myGroups]));
+
+            if (sourceGroups.length === 0) {
+                setMyGroups([]);
+                return;
+            }
+
+            console.log('[Sync] Validating myGroups against server...', sourceGroups);
+            const validGroupIds: string[] = [];
+
+            for (const gId of sourceGroups) {
+                const isDirty = await LocalGroupStore.isDirty(gId);
+                if (isDirty) {
+                    // Group has pending local creation/edits, retain it
+                    validGroupIds.push(gId);
+                    continue;
+                }
+
+                try {
+                    const serverGroup = await storageService.getGroup(gId);
+                    if (serverGroup) {
+                        validGroupIds.push(gId);
+                        await LocalGroupStore.saveGroup(serverGroup);
+                    } else {
+                        // The group was deleted on the server!
+                        console.log(`[Sync] Group ${gId} deleted on server, removing locally.`);
+                        await LocalGroupStore.deleteGroup(gId);
+                        setCurrentGroup(prev => (prev?.id === gId ? null : prev));
+                    }
+                } catch (err) {
+                    console.log(`[Sync] Could not verify group ${gId} (offline?), keeping local copy:`, err);
+                    validGroupIds.push(gId);
+                }
+            }
+
+            const uniqueValid = Array.from(new Set(validGroupIds));
+            setMyGroups(uniqueValid);
+            await persistMyGroups(uniqueValid);
+        } catch (error) {
+            console.error('[Sync] Error refreshing myGroups:', error);
+        }
+    };
+
     useEffect(() => {
         if (!userId) return;
 
@@ -104,7 +165,18 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
                 const json = await AsyncStorage.getItem('myGroups');
                 const savedGroups: string[] = json ? JSON.parse(json) : [];
-                setMyGroups(savedGroups);
+
+                // Check LocalGroupStore to avoid losing locally saved or joined groups
+                const localGroups = await LocalGroupStore.getAllGroups();
+                const localGroupIds = Object.keys(localGroups);
+                const mergedGroupIds = Array.from(new Set([...savedGroups, ...localGroupIds]));
+
+                setMyGroups(mergedGroupIds);
+                isGroupsLoaded.current = true;
+                await persistMyGroups(mergedGroupIds);
+
+                // Reconcile and validate myGroups against server
+                refreshMyGroups(mergedGroupIds);
             } catch (error) {
                 console.error('[Groups] Failed to load myGroups:', error);
             }
@@ -114,9 +186,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [userId]);
 
     useEffect(() => {
-        if (userId) {
-            AsyncStorage.setItem('myGroups', JSON.stringify(myGroups));
-        }
+        if (!isGroupsLoaded.current || !userId) return;
+        persistMyGroups(myGroups);
     }, [myGroups, userId]);
 
     // ========== BACKGROUND SYNC ==========
@@ -163,15 +234,25 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         // Group exists, update it
                         console.log(`[Sync] Updating existing group ${groupId} on server`);
 
-                        // Update members
-                        for (const member of localGroup.members) {
-                            const existsOnServer = serverGroup.members.some(m => m.id === member.id);
-                            if (!existsOnServer) {
-                                await storageService.addMember(groupId, member);
+                        // 1. Update/Add members
+                        for (const localMember of localGroup.members) {
+                            const serverMember = serverGroup.members.find(m => m.id === localMember.id);
+                            if (!serverMember) {
+                                await storageService.addMember(groupId, localMember);
+                            } else if (serverMember.status !== localMember.status && localMember.status) {
+                                await storageService.updateMemberStatus(groupId, localMember.id, localMember.status);
                             }
                         }
 
-                        // Update expenses
+                        // 2. Remove members deleted locally
+                        for (const serverMember of serverGroup.members) {
+                            const stillExistsLocally = localGroup.members.some(m => m.id === serverMember.id);
+                            if (!stillExistsLocally) {
+                                await storageService.removeMember(groupId, serverMember.id);
+                            }
+                        }
+
+                        // 3. Update/Add expenses
                         for (const expense of localGroup.expenses) {
                             const existsOnServer = serverGroup.expenses.some(e => e.id === expense.id);
                             if (!existsOnServer) {
@@ -179,7 +260,15 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                             }
                         }
 
-                        // Update group fields (name, imageUrl, etc.)
+                        // 4. Remove expenses deleted locally
+                        for (const serverExpense of serverGroup.expenses) {
+                            const stillExistsLocally = localGroup.expenses.some(e => e.id === serverExpense.id);
+                            if (!stillExistsLocally) {
+                                await storageService.deleteExpense(groupId, serverExpense.id);
+                            }
+                        }
+
+                        // 5. Update group fields (name, imageUrl, etc.)
                         const updates: Partial<Group> = {};
                         if (localGroup.name !== serverGroup.name) updates.name = localGroup.name;
                         if (localGroup.imageUrl !== serverGroup.imageUrl) updates.imageUrl = localGroup.imageUrl;
@@ -221,9 +310,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // ========== HELPER: ADD TO MY GROUPS ==========
     const addToMyGroups = (groupId: string) => {
-        if (!myGroups.includes(groupId)) {
-            setMyGroups(prev => [...prev, groupId]);
-        }
+        setMyGroups(prev => {
+            if (prev.includes(groupId)) return prev;
+            const updated = [...prev, groupId];
+            persistMyGroups(updated);
+            return updated;
+        });
     };
 
     // ========== CREATE GROUP ==========
@@ -319,7 +411,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
                 // Subscribe to updates
                 subscribeToGroup(groupId, (updated) => {
-                    setCurrentGroup(updated);
+                    if (updated) {
+                        setCurrentGroup(updated);
+                    }
                 });
 
                 return {
@@ -352,7 +446,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // Subscribe to updates
             subscribeToGroup(groupId, (updated) => {
-                setCurrentGroup(updated);
+                if (updated) {
+                    setCurrentGroup(updated);
+                }
             });
 
             return { success: true, status: 'joined' as const };
@@ -365,37 +461,83 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== SUBSCRIBE TO GROUP ==========
-    const subscribeToGroup = (groupId: string, onUpdate: (group: Group) => void) => {
-        // Avoid duplicate subscriptions
-        if (activeSubscriptions.current.has(groupId)) {
-            console.log(`[Subscribe] Already subscribed to ${groupId}`);
-            return activeSubscriptions.current.get(groupId)!;
+    const subscribeToGroup = (groupId: string, onUpdate: (group: Group | null) => void) => {
+        // Register listener
+        if (!groupListeners.current.has(groupId)) {
+            groupListeners.current.set(groupId, new Set());
+        }
+        groupListeners.current.get(groupId)!.add(onUpdate);
+
+        // If not already subscribed to backend storageService for this group, subscribe
+        if (!groupUnsubscribers.current.has(groupId)) {
+            const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup) => {
+                if (!serverGroup) {
+                    console.log(`[Subscribe] Group ${groupId} does not exist on server (deleted)`);
+                    const isDirty = await LocalGroupStore.isDirty(groupId);
+                    if (isDirty) {
+                        console.log(`[Subscribe] Group ${groupId} is dirty, keeping local copy`);
+                        return;
+                    }
+
+                    // Remove deleted group locally
+                    await LocalGroupStore.deleteGroup(groupId);
+                    setMyGroups(prev => {
+                        const next = prev.filter(id => id !== groupId);
+                        persistMyGroups(next);
+                        return next;
+                    });
+                    setCurrentGroup(prev => (prev?.id === groupId ? null : prev));
+
+                    // Notify all listeners of deletion
+                    const listeners = groupListeners.current.get(groupId);
+                    if (listeners) {
+                        listeners.forEach(cb => cb(null));
+                    }
+                    return;
+                }
+
+                // Group exists on server
+                const isDirty = await LocalGroupStore.isDirty(groupId);
+                let groupToDispatch = serverGroup;
+
+                if (isDirty) {
+                    console.log(`[Subscribe] Group ${groupId} is dirty, keeping local changes`);
+                    const localGroup = await LocalGroupStore.getGroup(groupId);
+                    if (localGroup) {
+                        groupToDispatch = localGroup;
+                    }
+                } else {
+                    console.log(`[Subscribe] Updating group ${groupId} from server`);
+                    await LocalGroupStore.saveGroup(serverGroup);
+                }
+
+                // Always update currentGroup if this is the active group
+                setCurrentGroup(prev => (prev?.id === groupId ? groupToDispatch : prev));
+
+                // Notify all listeners
+                const listeners = groupListeners.current.get(groupId);
+                if (listeners) {
+                    listeners.forEach(cb => cb(groupToDispatch));
+                }
+            });
+
+            groupUnsubscribers.current.set(groupId, unsubscribe);
         }
 
-        const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup) => {
-            // Check if we have local changes
-            const isDirty = await LocalGroupStore.isDirty(groupId);
-
-            if (isDirty) {
-                // We have local changes, don't overwrite with server data
-                console.log(`[Subscribe] Group ${groupId} is dirty, keeping local changes`);
-                const localGroup = await LocalGroupStore.getGroup(groupId);
-                if (localGroup) {
-                    onUpdate(localGroup);
-                }
-            } else {
-                // No local changes, accept server update
-                console.log(`[Subscribe] Updating group ${groupId} from server`);
-                await LocalGroupStore.saveGroup(serverGroup);
-                onUpdate(serverGroup);
-            }
-        });
-
-        activeSubscriptions.current.set(groupId, unsubscribe);
-
+        // Return unsubscribe function for this specific listener
         return () => {
-            unsubscribe();
-            activeSubscriptions.current.delete(groupId);
+            const listeners = groupListeners.current.get(groupId);
+            if (listeners) {
+                listeners.delete(onUpdate);
+                if (listeners.size === 0) {
+                    groupListeners.current.delete(groupId);
+                    const backendUnsub = groupUnsubscribers.current.get(groupId);
+                    if (backendUnsub) {
+                        backendUnsub();
+                        groupUnsubscribers.current.delete(groupId);
+                    }
+                }
+            }
         };
     };
 
@@ -424,6 +566,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
+        try {
+            await storageService.addExpense(currentGroup.id, newExpense);
+        } catch (error) {
+            console.error('[AddExpense] Failed to add expense to server (offline?):', error);
+        }
+
         console.log(`[AddExpense] Added expense "${title}" to group ${currentGroup.id}`);
     };
 
@@ -447,6 +595,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
+        try {
+            await storageService.addMember(currentGroup.id, newMember);
+        } catch (error) {
+            console.error('[AddMember] Failed to add member to server (offline?):', error);
+        }
+
         console.log(`[AddMember] Added member "${name}" to group ${currentGroup.id}`);
     };
 
@@ -466,6 +620,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
+
+        try {
+            await storageService.removeMember(currentGroup.id, memberId);
+        } catch (error) {
+            console.error('[RemoveMember] Failed to remove member on server (offline?):', error);
+        }
     };
 
     // ========== DELETE EXPENSE ==========
@@ -480,6 +640,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
+
+        try {
+            await storageService.deleteExpense(currentGroup.id, expenseId);
+        } catch (error) {
+            console.error('[DeleteExpense] Failed to delete expense on server (offline?):', error);
+        }
     };
 
     // ========== DELETE GROUP ==========
@@ -494,7 +660,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         await LocalGroupStore.deleteGroup(groupId);
-        setMyGroups(prev => prev.filter(id => id !== groupId));
+        setMyGroups(prev => {
+            const next = prev.filter(id => id !== groupId);
+            persistMyGroups(next);
+            return next;
+        });
         setCurrentGroup(null);
         setDirtyGroups(prev => {
             const next = new Set(prev);
@@ -551,6 +721,17 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const approveMember = async (memberId: string) => {
         if (!currentGroup) return;
 
+        // 1. First, send to server (uses getDocFromServer to avoid stale cache)
+        try {
+            await storageService.updateMemberStatus(currentGroup.id, memberId, 'active');
+            console.log(`[ApproveMember] ✅ Member ${memberId} approved on Firestore`);
+        } catch (error) {
+            console.error('[ApproveMember] Failed to approve member on server:', error);
+            // Don't update local state if server failed — user will see real state on next sync
+            return;
+        }
+
+        // 2. Update local state only after server confirms (to stay consistent with Firestore)
         const updatedGroup = {
             ...currentGroup,
             members: currentGroup.members.map(m =>
@@ -559,7 +740,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
-        await saveGroupLocally(updatedGroup);
+        // Save locally without marking dirty (server is already updated)
+        await LocalGroupStore.saveGroup(updatedGroup);
         setCurrentGroup(updatedGroup);
     };
 
@@ -586,6 +768,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updateGroupImage,
             approveMember,
             rejectMember,
+            refreshMyGroups,
             subscribeToGroup
         }}>
             {children}

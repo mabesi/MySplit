@@ -16,9 +16,10 @@ export interface StorageService {
 
     /**
      * Subscribes to real-time updates for a group.
+     * Calls onUpdate with the group data, or null if the group does not exist / was deleted.
      * Returns an unsubscribe function.
      */
-    subscribeToGroup(groupId: string, onUpdate: (group: Group) => void): () => void;
+    subscribeToGroup(groupId: string, onUpdate: (group: Group | null) => void): () => void;
 
     /**
      * Adds an expense to the group.

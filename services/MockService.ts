@@ -5,7 +5,7 @@ const generateId = () => Math.random().toString(36).substring(2, 15);
 
 export class MockService implements StorageService {
     private groups: Map<string, Group> = new Map();
-    private subscribers: Map<string, ((group: Group) => void)[]> = new Map();
+    private subscribers: Map<string, ((group: Group | null) => void)[]> = new Map();
 
     constructor() {
         this.initializeMockData();
@@ -140,10 +140,10 @@ export class MockService implements StorageService {
         return this.groups.get(groupId) || null;
     }
 
-    subscribeToGroup(groupId: string, onUpdate: (group: Group) => void): () => void {
+    subscribeToGroup(groupId: string, onUpdate: (group: Group | null) => void): () => void {
         // Initial call
         const group = this.groups.get(groupId);
-        if (group) onUpdate(group);
+        onUpdate(group || null);
 
         // Add subscriber
         const subs = this.subscribers.get(groupId) || [];

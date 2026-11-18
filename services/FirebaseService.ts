@@ -1,6 +1,7 @@
 import {
     doc,
     getDoc,
+    getDocFromServer,
     setDoc,
     updateDoc,
     onSnapshot,
@@ -61,7 +62,7 @@ export class FirebaseService implements StorageService {
         }
     }
 
-    subscribeToGroup(groupId: string, callback: (group: Group) => void): () => void {
+    subscribeToGroup(groupId: string, callback: (group: Group | null) => void): () => void {
         console.log(`🔔 FirebaseService: Subscribing to group ${groupId}...`);
         const groupRef = doc(db, 'groups', groupId);
 
@@ -77,6 +78,12 @@ export class FirebaseService implements StorageService {
 
                 if (snapshot.exists()) {
                     callback(snapshot.data() as Group);
+                } else {
+                    // Document does NOT exist in Firestore (deleted or not found)
+                    if (!snapshot.metadata.hasPendingWrites) {
+                        console.warn(`⚠️ Group ${groupId} does not exist in Firestore (deleted or not found)`);
+                        callback(null);
+                    }
                 }
             },
             (error) => {
@@ -122,7 +129,7 @@ export class FirebaseService implements StorageService {
 
     async removeMember(groupId: string, memberId: string): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDoc(groupRef);
+        const groupDoc = await getDocFromServer(groupRef);
 
         if (!groupDoc.exists()) throw new Error("Group not found");
 
@@ -143,7 +150,7 @@ export class FirebaseService implements StorageService {
 
     async mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDoc(groupRef);
+        const groupDoc = await getDocFromServer(groupRef);
 
         if (!groupDoc.exists()) throw new Error("Group not found");
 
@@ -186,14 +193,19 @@ export class FirebaseService implements StorageService {
 
     async updateMemberStatus(groupId: string, memberId: string, status: 'active' | 'pending'): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDoc(groupRef);
+
+        // Always fetch from server to get the real current state (not offline cache)
+        const groupDoc = await getDocFromServer(groupRef);
 
         if (!groupDoc.exists()) throw new Error("Group not found");
 
         const group = groupDoc.data() as Group;
         const memberToUpdate = group.members.find(m => m.id === memberId);
 
-        if (!memberToUpdate) return;
+        if (!memberToUpdate) {
+            console.warn(`[updateMemberStatus] Member ${memberId} not found in group ${groupId}`);
+            return;
+        }
 
         // Check for duplicate name if approving
         if (status === 'active') {
@@ -210,18 +222,25 @@ export class FirebaseService implements StorageService {
             }
         }
 
-        // Re-fetch group to be safe after merge
-        const freshDoc = await getDoc(groupRef);
+        // Re-fetch from server after potential merge to get fresh state
+        const freshDoc = await getDocFromServer(groupRef);
+
+        if (!freshDoc.exists()) throw new Error("Group not found after merge");
+
         const freshGroup = freshDoc.data() as Group;
 
         const updatedMembers = freshGroup.members.map(m =>
             m.id === memberId ? { ...m, status } : m
         );
 
+        console.log(`[updateMemberStatus] Updating member ${memberId} to status '${status}' in group ${groupId}`);
+
         await updateDoc(groupRef, {
             members: updatedMembers,
             updatedAt: Date.now()
         });
+
+        console.log(`[updateMemberStatus] ✅ Member ${memberId} status updated to '${status}'`);
     }
 
     async deleteExpense(groupId: string, expenseId: string): Promise<void> {

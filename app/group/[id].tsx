@@ -16,7 +16,7 @@ import { SyncIndicator } from '../../components/SyncIndicator';
 export default function GroupDetails() {
     const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
     const router = useRouter();
-    const { currentGroup, joinGroup, addExpense, addMember, removeMember, deleteExpense, deleteGroup, updateGroupImage, approveMember, rejectMember, userId } = useGroup();
+    const { currentGroup, joinGroup, subscribeToGroup, addExpense, addMember, removeMember, deleteExpense, deleteGroup, updateGroupImage, approveMember, rejectMember, userId } = useGroup();
     const [activeTab, setActiveTab] = useState<'expenses' | 'balances'>('expenses');
     const [showAddMember, setShowAddMember] = useState(false);
     const [showAddExpense, setShowAddExpense] = useState(false);
@@ -37,10 +37,33 @@ export default function GroupDetails() {
     const [splitAmong, setSplitAmong] = useState<string[]>([]);
 
     useEffect(() => {
-        if (id) {
-            // Always refresh group data on mount to ensure we see pending edits/synced data
-            joinGroup(id);
-        }
+        if (!id) return;
+
+        // Join / load group
+        joinGroup(id).then(res => {
+            if (res.status === 'group_not_found') {
+                Alert.alert(
+                    i18n.t('error') || 'Error',
+                    i18n.t('groupNotFound') || 'Group not found',
+                    [{ text: 'OK', onPress: () => router.replace('/') }]
+                );
+            }
+        });
+
+        // Listen for group updates and handle server deletion
+        const unsubscribe = subscribeToGroup(id, (updatedGroup) => {
+            if (!updatedGroup) {
+                Alert.alert(
+                    i18n.t('error') || 'Error',
+                    i18n.t('groupNotFound') || 'Group not found',
+                    [{ text: 'OK', onPress: () => router.replace('/') }]
+                );
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
     }, [id]);
 
     // Handle auto-add member from deep link or navigation
@@ -99,12 +122,24 @@ export default function GroupDetails() {
                     <Text style={[styles.subtitle, { paddingHorizontal: 32 }]}>
                         {i18n.t('waitApprovalMessage', { groupName: currentGroup.name })}
                     </Text>
-                    <TouchableOpacity
-                        style={[styles.button, { marginTop: 32, backgroundColor: '#334155', paddingHorizontal: 24, paddingVertical: 12 }]}
-                        onPress={() => router.replace('/')}
-                    >
-                        <Text style={styles.buttonText}>{i18n.t('backToHome')}</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 12, marginTop: 32 }}>
+                        <TouchableOpacity
+                            style={[styles.button, { backgroundColor: '#334155', paddingHorizontal: 20, paddingVertical: 12 }]}
+                            onPress={() => router.replace('/')}
+                        >
+                            <Text style={styles.buttonText}>{i18n.t('backToHome')}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.button, { backgroundColor: '#4F46E5', paddingHorizontal: 20, paddingVertical: 12 }]}
+                            onPress={async () => {
+                                if (id) {
+                                    await joinGroup(id);
+                                }
+                            }}
+                        >
+                            <Text style={styles.buttonText}>{i18n.t('checkStatus') || 'Check Status'}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </ScreenWrapper>
         );
@@ -115,8 +150,18 @@ export default function GroupDetails() {
             alert(i18n.t('fillAllFields'));
             return;
         }
+
+        // Normalize decimal separator: replace comma with dot
+        const normalizedAmount = expenseAmount.replace(',', '.');
+        const parsedAmount = parseFloat(normalizedAmount);
+
+        if (isNaN(parsedAmount) || parsedAmount <= 0) {
+            alert(i18n.t('invalidAmount'));
+            return;
+        }
+
         const dateTimestamp = new Date(expenseDate).getTime();
-        await addExpense(expenseTitle, parseFloat(expenseAmount), paidBy, splitAmong, dateTimestamp);
+        await addExpense(expenseTitle, parsedAmount, paidBy, splitAmong, dateTimestamp);
         setShowAddExpense(false);
         setExpenseTitle('');
         setExpenseAmount('');
@@ -154,7 +199,7 @@ export default function GroupDetails() {
                     text: i18n.t('save'),
                     onPress: async () => {
                         await addExpense(
-                            "Settlement",
+                            i18n.t('settlement'),
                             amount,
                             fromMember.id,
                             [toMember.id]
@@ -242,7 +287,10 @@ export default function GroupDetails() {
                         data={currentGroup.expenses.slice().reverse()} // Newest first
                         keyExtractor={item => item.id}
                         renderItem={({ item }) => {
-                            const isSettlement = item.title === "Settlement";
+                            // Detect settlements by the internal key or legacy translations
+                            const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
+                            const isSettlement = SETTLEMENT_KEYS.includes(item.title);
+                            const displayTitle = isSettlement ? i18n.t('settlement') : item.title;
                             return (
                                 <View style={[styles.expenseItem, isSettlement && styles.settlementItem]}>
                                     <View style={[styles.expenseIcon, isSettlement && styles.settlementIcon]}>
@@ -253,7 +301,7 @@ export default function GroupDetails() {
                                         />
                                     </View>
                                     <View style={styles.expenseDetails}>
-                                        <Text style={styles.expenseTitle}>{item.title}</Text>
+                                        <Text style={styles.expenseTitle}>{displayTitle}</Text>
                                         <Text style={styles.expensePayer}>
                                             {i18n.t('paidBy')} <Text style={{ color: '#818CF8', fontWeight: 'bold' }}>{currentGroup.members.find((m: any) => m.id === item.paidBy)?.name || i18n.t('unknown')}</Text>
                                         </Text>
@@ -393,9 +441,18 @@ export default function GroupDetails() {
                             style={styles.input}
                             placeholder={i18n.t('amount')}
                             placeholderTextColor="#64748B"
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
                             value={expenseAmount}
-                            onChangeText={setExpenseAmount}
+                            onChangeText={(text) => {
+                                // Normalize: replace comma with dot, allow only digits and one dot
+                                const normalized = text.replace(',', '.');
+                                // Prevent multiple dots
+                                const parts = normalized.split('.');
+                                const sanitized = parts.length > 2
+                                    ? parts[0] + '.' + parts.slice(1).join('')
+                                    : normalized;
+                                setExpenseAmount(sanitized);
+                            }}
                         />
 
                         <Text style={styles.label}>{i18n.t('date') || 'Date'}</Text>

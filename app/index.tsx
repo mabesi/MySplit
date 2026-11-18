@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Modal, TextInput, Linking, Alert, KeyboardAvoidingView } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Modal, TextInput, Linking, Alert, KeyboardAvoidingView, RefreshControl } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useGroup } from '../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,7 +12,7 @@ import { SyncIndicator } from '../components/SyncIndicator';
 
 // Helper component for each group in the grid
 const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
-    const { getGroup, joinGroup, subscribeToGroup } = useGroup();
+    const { getGroup, joinGroup, subscribeToGroup, userId } = useGroup();
     const router = useRouter();
     const [group, setGroup] = useState<any>(null);
     const syncStatus = useSyncStatus(groupId);
@@ -50,6 +50,9 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
 
     if (!group) return null;
 
+    const currentUserMember = group.members?.find((m: any) => m.id === userId);
+    const isPending = currentUserMember?.status === 'pending';
+
     return (
         <TouchableOpacity
             style={styles.groupItem}
@@ -63,6 +66,16 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
                 <View style={styles.syncBadgeContainer}>
                     <SyncIndicator status={syncStatus} variant="badge" />
                 </View>
+
+                {/* Pending Approval Badge */}
+                {isPending && (
+                    <View style={styles.pendingBadgeContainer}>
+                        <View style={styles.pendingBadge}>
+                            <Ionicons name="time" size={11} color="#FFF" />
+                            <Text style={styles.pendingBadgeText}>{i18n.t('pending') || 'Pendente'}</Text>
+                        </View>
+                    </View>
+                )}
 
                 {group.imageUrl ? (
                     <Image source={{ uri: group.imageUrl, cache: 'reload' }} style={styles.groupImage} key={group.imageUrl} />
@@ -83,15 +96,25 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
 
 export default function HomeScreen() {
     const router = useRouter();
-    const { createGroup, joinGroup, myGroups, getGroup, addMember, isLoading } = useGroup();
+    const { createGroup, joinGroup, myGroups, getGroup, addMember, isLoading, refreshMyGroups } = useGroup();
     const [name, setName] = useState('');
     const [userName, setUserName] = useState('');
     const [joinId, setJoinId] = useState('');
     const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
     const [locale, setLocale] = useState(i18n.locale);
+    const [refreshing, setRefreshing] = useState(false);
     const insets = useSafeAreaInsets();
     const { joinGroupId } = useLocalSearchParams<{ joinGroupId?: string }>();
     const [showJoinModal, setShowJoinModal] = useState(false); // Added this state
+
+    const onRefresh = useCallback(async () => {
+        setRefreshing(true);
+        try {
+            await refreshMyGroups();
+        } finally {
+            setRefreshing(false);
+        }
+    }, [refreshMyGroups]);
 
     // Handle deep link parameter
     useEffect(() => {
@@ -131,72 +154,43 @@ export default function HomeScreen() {
             router.push(`/group/${joinId}`); // Changed joinGroupId to joinId
         } else {
             if (result.status === 'already_member') {
-                Alert.alert(
-                    i18n.t('alreadyMember') || 'Already a member',
-                    (i18n.t('alreadyMemberMessage') || 'You are already in this group as {name}. Do you want to add a new local member named {newName}?')
-                        .replace('{name}', result.memberName || '')
-                        .replace('{newName}', userName), // Changed joinUserName to userName
-                    [
-                        { text: i18n.t('cancel'), style: 'cancel' },
-                        {
-                            text: i18n.t('yes'),
-                            onPress: async () => {
-                                // Add local member logic
-                                // We need to be in the group context to add a member to it?
-                                // Actually addMember in context uses currentGroup.
-                                // But we are not in the group view yet.
-                                // So we need to set the current group first?
-                                // Or we can expose a method to add member to a specific group ID?
-                                // The current addMember implementation in context uses currentGroup.
-                                // Let's check context... it uses currentGroup.
-                                // So we might need to "enter" the group first or modify addMember.
-                                // For now, let's assume we can navigate to the group and then add?
-                                // Or better: The user is "already in the group", so we can just navigate them there
-                                // and THEN trigger the add member?
-                                // OR: We can temporarily set the group as current and add.
-
-                                // Wait, if I am already a member, I can just open the group.
-                                // But the user wants to add a NEW member (local).
-                                // If I navigate to group, I am viewing it as myself.
-                                // Then I can add a member.
-
-                                // Let's try: Navigate to group, then call addMember?
-                                // But addMember needs the group loaded.
-
-                                // Alternative: Update context to allow adding member by ID?
-                                // StorageService has addMember(groupId, ...).
-                                // Context's addMember uses currentGroup.
-
-                                // Let's just navigate to the group and show a success message?
-                                // But the requirement is "add a new member local with the name informed".
-                                // So we should do it.
-
-                                // Since we are in the "Home" screen, currentGroup is likely null.
-                                // We can use getGroup to fetch it, set it, and then add?
-                                // But joinGroup already does some of that if successful.
-
-                                // Let's modify the plan slightly:
-                                // 1. Navigate to group (since user is member).
-                                // 2. Pass a param to auto-trigger add member?
-                                // OR: Just call storage service directly? No, context is better.
-
-                                // Let's use the fact that we can just join the group (locally) since we are a member.
-                                // We can call joinGroup again? No, it returns already_member.
-
-                                // Let's just navigate to the group.
-                                // And we need to add the member.
-                                // Maybe we can use a special param in route?
-                                router.push({
-                                    pathname: `/group/${joinId}`, // Changed joinGroupId to joinId
-                                    params: { autoAddMemberName: userName } // Changed joinUserName to userName
-                                });
-                                setShowJoinModal(false);
-                                setJoinId(''); // Changed setJoinGroupId to setJoinId
-                                setUserName(''); // Changed setJoinUserName to setUserName
+                if (result.memberName && result.memberName.trim().toLowerCase() === userName.trim().toLowerCase()) {
+                    setShowJoinModal(false);
+                    setJoinId('');
+                    setUserName('');
+                    router.push(`/group/${joinId}`);
+                } else {
+                    Alert.alert(
+                        i18n.t('alreadyMember') || 'Already a member',
+                        (i18n.t('alreadyMemberMessage') || 'You are already in this group as {name}. Do you want to add a new local member named {newName}?')
+                            .replace('{name}', result.memberName || '')
+                            .replace('{newName}', userName),
+                        [
+                            { text: i18n.t('cancel'), style: 'cancel' },
+                            {
+                                text: i18n.t('openGroup') || 'Open Group',
+                                onPress: () => {
+                                    setShowJoinModal(false);
+                                    setJoinId('');
+                                    setUserName('');
+                                    router.push(`/group/${joinId}`);
+                                }
+                            },
+                            {
+                                text: i18n.t('yes'),
+                                onPress: async () => {
+                                    router.push({
+                                        pathname: `/group/${joinId}`,
+                                        params: { autoAddMemberName: userName }
+                                    });
+                                    setShowJoinModal(false);
+                                    setJoinId('');
+                                    setUserName('');
+                                }
                             }
-                        }
-                    ]
-                );
+                        ]
+                    );
+                }
             } else if (result.status === 'name_taken') {
                 Alert.alert(i18n.t('error'), i18n.t('nameTaken') || 'Name already taken');
             } else if (result.status === 'group_not_found') {
@@ -217,6 +211,14 @@ export default function HomeScreen() {
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor="#6366F1"
+                            colors={['#6366F1']}
+                        />
+                    }
                 >
                     {/* Header Section */}
                     <View style={styles.headerSection}>
@@ -521,6 +523,26 @@ const styles = StyleSheet.create({
         top: 8,
         right: 8,
         zIndex: 10,
+    },
+    pendingBadgeContainer: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        zIndex: 10,
+    },
+    pendingBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F59E0B',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 8,
+        gap: 3,
+    },
+    pendingBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '700',
     },
     card: {
         backgroundColor: '#1E293B',
