@@ -1,17 +1,23 @@
 import {
     doc,
     getDoc,
-    getDocFromServer,
     setDoc,
     updateDoc,
     onSnapshot,
     arrayUnion,
     arrayRemove,
-    deleteDoc
+    deleteDoc,
+    runTransaction
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { StorageService } from './StorageInterface';
 import { Group, Expense, Member } from '../types';
+import {
+    applyMemberApproval,
+    applyMemberMerge,
+    applyMemberRemoval,
+    prepareMemberApproval
+} from '../utils/memberLogic';
 
 
 // Polyfill for UUID if expo-crypto is not available or just use a simple one for now
@@ -123,6 +129,7 @@ export class FirebaseService implements StorageService {
         if (memberData.email) cleanMember.email = memberData.email;
         if (memberData.status) cleanMember.status = memberData.status;
         if (memberData.avatarUrl) cleanMember.avatarUrl = memberData.avatarUrl;
+        if (memberData.virtual) cleanMember.virtual = true;
 
         await updateDoc(groupRef, {
             members: arrayUnion(cleanMember),
@@ -132,118 +139,84 @@ export class FirebaseService implements StorageService {
 
     async removeMember(groupId: string, memberId: string): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDocFromServer(groupRef);
 
-        if (!groupDoc.exists()) throw new Error("Group not found");
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
 
-        const group = groupDoc.data() as Group;
-        const memberToRemove = group.members.find(m => m.id === memberId);
+            const group = groupDoc.data() as Group;
+            const updated = applyMemberRemoval(group, memberId);
 
-        if (!memberToRemove) return; // Member not found, nothing to do
+            if (updated === group) return;
 
-        const updatedMembers = group.members.filter(m => m.id !== memberId);
-        const updatedExpenses = group.expenses.filter(e => e.paidBy !== memberId);
-
-        await updateDoc(groupRef, {
-            members: updatedMembers,
-            expenses: updatedExpenses,
-            updatedAt: Date.now()
+            transaction.update(groupRef, {
+                members: updated.members,
+                expenses: updated.expenses,
+                updatedAt: updated.updatedAt
+            });
         });
     }
 
     async mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDocFromServer(groupRef);
 
-        if (!groupDoc.exists()) throw new Error("Group not found");
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
 
-        const group = groupDoc.data() as Group;
+            const group = groupDoc.data() as Group;
+            const updated = applyMemberMerge(group, oldMemberId, newMemberId);
 
-        // 1. Update expenses
-        const updatedExpenses = group.expenses.map(e => {
-            let updated = false;
-            let newPaidBy = e.paidBy;
-            let newSplitAmong = [...e.splitAmong];
+            if (updated === group) return;
 
-            if (e.paidBy === oldMemberId) {
-                newPaidBy = newMemberId;
-                updated = true;
-            }
-
-            if (newSplitAmong.includes(oldMemberId)) {
-                newSplitAmong = newSplitAmong.filter(id => id !== oldMemberId);
-                if (!newSplitAmong.includes(newMemberId)) {
-                    newSplitAmong.push(newMemberId);
-                }
-                updated = true;
-            }
-
-            if (updated) {
-                return { ...e, paidBy: newPaidBy, splitAmong: newSplitAmong };
-            }
-            return e;
-        });
-
-        // 2. Remove old member
-        const updatedMembers = group.members.filter(m => m.id !== oldMemberId);
-
-        await updateDoc(groupRef, {
-            expenses: updatedExpenses,
-            members: updatedMembers,
-            updatedAt: Date.now()
+            transaction.update(groupRef, {
+                members: updated.members,
+                expenses: updated.expenses,
+                updatedAt: updated.updatedAt
+            });
         });
     }
 
     async updateMemberStatus(groupId: string, memberId: string, status: 'active' | 'pending'): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
 
-        // Always fetch from server to get the real current state (not offline cache)
-        const groupDoc = await getDocFromServer(groupRef);
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
 
-        if (!groupDoc.exists()) throw new Error("Group not found");
+            const group = groupDoc.data() as Group;
 
-        const group = groupDoc.data() as Group;
-        const memberToUpdate = group.members.find(m => m.id === memberId);
+            if (status === 'pending') {
+                const members = group.members.map(member =>
+                    member.id === memberId ? { ...member, status } : member
+                );
 
-        if (!memberToUpdate) {
-            console.warn(`[updateMemberStatus] Member ${memberId} not found in group ${groupId}`);
-            return;
-        }
-
-        // Check for duplicate name if approving
-        if (status === 'active') {
-            const existingActiveMember = group.members.find(m =>
-                m.id !== memberId &&
-                m.status !== 'pending' &&
-                m.name.toLowerCase() === memberToUpdate.name.toLowerCase()
-            );
-
-            if (existingActiveMember) {
-                // MERGE!
-                console.log(`Merging member ${existingActiveMember.name} (${existingActiveMember.id}) into ${memberToUpdate.id}`);
-                await this.mergeMember(groupId, existingActiveMember.id, memberId);
+                transaction.update(groupRef, {
+                    members,
+                    updatedAt: Date.now()
+                });
+                return;
             }
-        }
 
-        // Re-fetch from server after potential merge to get fresh state
-        const freshDoc = await getDocFromServer(groupRef);
+            const plan = prepareMemberApproval(group, memberId);
+            if (!plan.ok) {
+                if (plan.reason === 'not_found') return;
 
-        if (!freshDoc.exists()) throw new Error("Group not found after merge");
+                throw new Error(
+                    plan.reason === 'name_reserved'
+                        ? 'Name reserved for the group creator'
+                        : 'Name already in use'
+                );
+            }
 
-        const freshGroup = freshDoc.data() as Group;
+            const updated = applyMemberApproval(group, memberId, plan.mergeMemberId);
 
-        const updatedMembers = freshGroup.members.map(m =>
-            m.id === memberId ? { ...m, status } : m
-        );
-
-        console.log(`[updateMemberStatus] Updating member ${memberId} to status '${status}' in group ${groupId}`);
-
-        await updateDoc(groupRef, {
-            members: updatedMembers,
-            updatedAt: Date.now()
+            transaction.update(groupRef, {
+                members: updated.members,
+                expenses: updated.expenses,
+                updatedAt: updated.updatedAt
+            });
         });
-
-        console.log(`[updateMemberStatus] ✅ Member ${memberId} status updated to '${status}'`);
     }
 
     async deleteExpense(groupId: string, expenseId: string): Promise<void> {

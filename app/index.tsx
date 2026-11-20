@@ -191,6 +191,8 @@ export default function HomeScreen() {
                         ]
                     );
                 }
+            } else if (result.status === 'name_reserved') {
+                Alert.alert(i18n.t('error'), i18n.t('nameReservedOwner') || 'This name belongs to the group creator');
             } else if (result.status === 'name_taken') {
                 Alert.alert(i18n.t('error'), i18n.t('nameTaken') || 'Name already taken');
             } else if (result.status === 'group_not_found') {

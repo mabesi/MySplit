@@ -9,6 +9,12 @@ import { MockService } from '../services/MockService';
 import { LocalGroupStore } from '../services/LocalGroupStore';
 import { OperationQueue, NewOperation } from '../services/OperationQueue';
 import { OperationProcessor } from '../services/OperationProcessor';
+import {
+    applyMemberApproval,
+    applyMemberRemoval,
+    findNameConflict,
+    prepareMemberApproval
+} from '../utils/memberLogic';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore
 import { auth as firebaseAuth } from '../firebaseConfig';
@@ -28,14 +34,14 @@ interface GroupContextType {
     isLoading: boolean;
     createGroup: (name: string, userName: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
-    joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'error' | 'group_not_found'; memberName?: string }>;
+    joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string }>;
     addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number) => Promise<void>;
-    addMember: (name: string) => Promise<void>;
+    addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
     deleteExpense: (expenseId: string) => Promise<void>;
     deleteGroup: () => Promise<void>;
     updateGroupImage: (url: string) => Promise<void>;
-    approveMember: (memberId: string) => Promise<void>;
+    approveMember: (memberId: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'not_found' | 'error' }>;
     rejectMember: (memberId: string) => Promise<void>;
     refreshMyGroups: () => Promise<void>;
     subscribeToGroup: (groupId: string, onUpdate: (group: Group | null) => void) => () => void;
@@ -442,7 +448,20 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // If userName provided, add as member
             if (userName) {
-                const pendingMember: Member = { id: userId, name: userName, status: 'pending' };
+                const trimmedName = userName.trim();
+                if (!trimmedName) {
+                    return { success: false, status: 'error' as const };
+                }
+
+                const conflict = findNameConflict(group, trimmedName);
+                if (conflict && conflict.type !== 'virtual') {
+                    return {
+                        success: false,
+                        status: conflict.type === 'owner' ? 'name_reserved' as const : 'name_taken' as const
+                    };
+                }
+
+                const pendingMember: Member = { id: userId, name: trimmedName, status: 'pending' };
 
                 group = {
                     ...group,
@@ -607,13 +626,25 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== ADD MEMBER ==========
-    const addMember = async (name: string) => {
-        if (!currentGroup) return;
+    const addMember = async (name: string): Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }> => {
+        if (!currentGroup) return { success: false, status: 'error' };
+
+        const trimmedName = name.trim();
+        if (!trimmedName) return { success: false, status: 'error' };
+
+        const conflict = findNameConflict(currentGroup, trimmedName);
+        if (conflict) {
+            return {
+                success: false,
+                status: conflict.type === 'owner' ? 'name_reserved' : 'name_taken'
+            };
+        }
 
         const newMember: Member = {
             id: `user-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            name,
-            status: 'active'
+            name: trimmedName,
+            status: 'active',
+            virtual: true
         };
 
         const updatedGroup = {
@@ -634,7 +665,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             payload: newMember
         });
 
-        console.log(`[AddMember] Added member "${name}" to group ${currentGroup.id}`);
+        console.log(`[AddMember] Added member "${trimmedName}" to group ${currentGroup.id}`);
+        return { success: true };
     };
 
     // ========== REMOVE MEMBER ==========
@@ -645,11 +677,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             return;
         }
 
-        const updatedGroup = {
-            ...currentGroup,
-            members: currentGroup.members.filter(m => m.id !== memberId),
-            updatedAt: Date.now()
-        };
+        // Same transformation used by the server transaction: expenses paid by
+        // the member are removed and their ID disappears from splitAmong.
+        const updatedGroup = applyMemberRemoval(currentGroup, memberId);
+        if (updatedGroup === currentGroup) return;
 
         pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
@@ -774,18 +805,18 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== APPROVE MEMBER ==========
-    const approveMember = async (memberId: string) => {
-        if (!currentGroup) return;
+    const approveMember = async (memberId: string): Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'not_found' | 'error' }> => {
+        if (!currentGroup) return { success: false, status: 'error' };
 
-        // Apply optimistically and enqueue. The operation is retried when the
-        // device reconnects, so approving works offline too.
-        const updatedGroup = {
-            ...currentGroup,
-            members: currentGroup.members.map(m =>
-                m.id === memberId ? { ...m, status: 'active' as const } : m
-            ),
-            updatedAt: Date.now()
-        };
+        // Apply the same rule as the server: only a single virtual member with
+        // the same name may be assumed. Real accounts and other requests block
+        // the approval; the participant must choose another name.
+        const plan = prepareMemberApproval(currentGroup, memberId);
+        if (!plan.ok) {
+            return { success: false, status: plan.reason };
+        }
+
+        const updatedGroup = applyMemberApproval(currentGroup, memberId, plan.mergeMemberId);
 
         pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
@@ -798,7 +829,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             payload: { memberId, status: 'active' }
         });
 
-        console.log(`[ApproveMember] Queued approval for member ${memberId}`);
+        console.log(
+            plan.mergeMemberId
+                ? `[ApproveMember] Queued approval for member ${memberId}, assuming virtual member ${plan.mergeMemberId}`
+                : `[ApproveMember] Queued approval for member ${memberId}`
+        );
+
+        return { success: true };
     };
 
     // ========== REJECT MEMBER ==========

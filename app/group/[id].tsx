@@ -72,21 +72,46 @@ export default function GroupDetails() {
 
     // Handle auto-add member from deep link or navigation
     useEffect(() => {
-        if (autoAddMemberName && currentGroup && currentGroup.id === id) {
-            // Check if member already exists to avoid duplicates/errors
-            const exists = currentGroup.members.some(m => m.name.toLowerCase() === autoAddMemberName.toLowerCase());
-            if (!exists) {
-                addMember(autoAddMemberName);
-                // Clear param? We can't easily clear search params in expo-router without replace
-                router.setParams({ autoAddMemberName: undefined });
-            }
+        if (!autoAddMemberName || !currentGroup || currentGroup.id !== id) return;
+
+        const name = autoAddMemberName.trim();
+        if (!name) {
+            router.setParams({ autoAddMemberName: undefined });
+            return;
         }
+
+        // Check if member already exists to avoid duplicates/errors
+        const exists = currentGroup.members.some(
+            m => m.name.trim().toLowerCase() === name.toLowerCase()
+        );
+
+        if (exists) {
+            router.setParams({ autoAddMemberName: undefined });
+            return;
+        }
+
+        const add = async () => {
+            const result = await addMember(name);
+            if (!result.success) {
+                Alert.alert(
+                    i18n.t('error'),
+                    i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
+                );
+            }
+            router.setParams({ autoAddMemberName: undefined });
+        };
+
+        add();
     }, [autoAddMemberName, currentGroup]);
 
     // Set default splitAmong when opening modal
     useEffect(() => {
         if (showAddExpense && currentGroup) {
-            setSplitAmong(currentGroup.members.map(m => m.id));
+            setSplitAmong(
+                currentGroup.members
+                    .filter(m => m.status !== 'pending')
+                    .map(m => m.id)
+            );
         }
     }, [showAddExpense, currentGroup]);
 
@@ -150,7 +175,16 @@ export default function GroupDetails() {
     }
 
     const handleAddExpense = async () => {
-        if (!expenseTitle || !expenseAmount || !paidBy || splitAmong.length === 0) {
+        const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
+        const activeMemberIds = new Set(activeMembers.map(m => m.id));
+        const validSplitAmong = splitAmong.filter(id => activeMemberIds.has(id));
+
+        if (!expenseTitle.trim() || !expenseAmount || !paidBy || validSplitAmong.length === 0) {
+            alert(i18n.t('fillAllFields'));
+            return;
+        }
+
+        if (!activeMemberIds.has(paidBy)) {
             alert(i18n.t('fillAllFields'));
             return;
         }
@@ -165,7 +199,7 @@ export default function GroupDetails() {
         }
 
         const dateTimestamp = new Date(expenseDate).getTime();
-        await addExpense(expenseTitle, parsedAmount, paidBy, splitAmong, dateTimestamp);
+        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp);
         setShowAddExpense(false);
         setExpenseTitle('');
         setExpenseAmount('');
@@ -174,8 +208,18 @@ export default function GroupDetails() {
     };
 
     const handleAddMember = async () => {
-        if (!newMemberName) return;
-        await addMember(newMemberName);
+        const name = newMemberName.trim();
+        if (!name) return;
+
+        const result = await addMember(name);
+        if (!result.success) {
+            Alert.alert(
+                i18n.t('error'),
+                i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
+            );
+            return;
+        }
+
         setShowAddMember(false);
         setNewMemberName('');
     };

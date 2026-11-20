@@ -15,28 +15,38 @@ export interface Transaction {
 export function calculateBalances(group: Group): { balances: Balance[], transactions: Transaction[] } {
     const balances: Record<string, number> = {};
 
+    // Pending requests are not part of the group yet, so they take no part in
+    // balances or settlements.
+    const activeMembers = group.members.filter(m => m.status !== 'pending');
+
     // Initialize 0
-    group.members.forEach(m => balances[m.id] = 0);
+    activeMembers.forEach(m => balances[m.id] = 0);
 
     group.expenses.forEach(expense => {
         const paidBy = expense.paidBy;
-        const amount = expense.amount;
-        const splitCount = expense.splitAmong.length;
+
+        // Ignore references to members that no longer exist (legacy data from
+        // removals that did not clean up splitAmong/paidBy).
+        if (!(paidBy in balances)) return;
+
+        const participants = expense.splitAmong.filter(memberId => memberId in balances);
+        const splitCount = participants.length;
 
         if (splitCount === 0) return;
 
+        const amount = expense.amount;
         const splitAmount = amount / splitCount;
 
         // Payer gets positive balance (they are owed)
         balances[paidBy] = (balances[paidBy] || 0) + amount;
 
         // Splitters get negative balance (they owe)
-        expense.splitAmong.forEach(memberId => {
+        participants.forEach(memberId => {
             balances[memberId] = (balances[memberId] || 0) - splitAmount;
         });
     });
 
-    const balanceList: Balance[] = group.members.map(m => ({
+    const balanceList: Balance[] = activeMembers.map(m => ({
         memberId: m.id,
         memberName: m.name,
         balance: balances[m.id] || 0

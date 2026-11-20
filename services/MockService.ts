@@ -1,5 +1,11 @@
 import { StorageService } from './StorageInterface';
 import { Group, Expense, Member } from '../types';
+import {
+    applyMemberApproval,
+    applyMemberMerge,
+    applyMemberRemoval,
+    prepareMemberApproval
+} from '../utils/memberLogic';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -199,13 +205,12 @@ export class MockService implements StorageService {
         const group = this.groups.get(groupId);
         if (!group) throw new Error("Group not found");
 
-        // Remove the member
-        group.members = group.members.filter(m => m.id !== memberId);
+        const updated = applyMemberRemoval(group, memberId);
+        if (updated === group) return;
 
-        // Remove all expenses paid by this member
-        group.expenses = group.expenses.filter(e => e.paidBy !== memberId);
-
-        group.updatedAt = Date.now();
+        group.members = updated.members;
+        group.expenses = updated.expenses;
+        group.updatedAt = updated.updatedAt;
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }
@@ -214,37 +219,39 @@ export class MockService implements StorageService {
         const group = this.groups.get(groupId);
         if (!group) throw new Error("Group not found");
 
-        const member = group.members.find(m => m.id === memberId);
-        if (member) {
-            member.status = status;
+        if (status === 'pending') {
+            group.members = group.members.map(m =>
+                m.id === memberId ? { ...m, status } : m
+            );
             group.updatedAt = Date.now();
             this.groups.set(groupId, group);
             this.notifySubscribers(groupId);
+            return;
         }
+
+        const plan = prepareMemberApproval(group, memberId);
+        if (!plan.ok) {
+            throw new Error(plan.reason === 'name_reserved' ? 'Name reserved for the group creator' : 'Name already in use');
+        }
+
+        const updated = applyMemberApproval(group, memberId, plan.mergeMemberId);
+        group.members = updated.members;
+        group.expenses = updated.expenses;
+        group.updatedAt = updated.updatedAt;
+        this.groups.set(groupId, group);
+        this.notifySubscribers(groupId);
     }
 
     async mergeMember(groupId: string, oldMemberId: string, newMemberId: string): Promise<void> {
         const group = this.groups.get(groupId);
         if (!group) throw new Error("Group not found");
 
-        // 1. Update expenses paid by oldMemberId
-        group.expenses.forEach(e => {
-            if (e.paidBy === oldMemberId) {
-                e.paidBy = newMemberId;
-            }
-            // 2. Update splitAmong
-            if (e.splitAmong.includes(oldMemberId)) {
-                e.splitAmong = e.splitAmong.filter(id => id !== oldMemberId);
-                if (!e.splitAmong.includes(newMemberId)) {
-                    e.splitAmong.push(newMemberId);
-                }
-            }
-        });
+        const updated = applyMemberMerge(group, oldMemberId, newMemberId);
+        if (updated === group) return;
 
-        // 3. Remove old member
-        group.members = group.members.filter(m => m.id !== oldMemberId);
-
-        group.updatedAt = Date.now();
+        group.members = updated.members;
+        group.expenses = updated.expenses;
+        group.updatedAt = updated.updatedAt;
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }

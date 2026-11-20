@@ -4,6 +4,9 @@ export interface Member {
     email?: string;
     avatarUrl?: string;
     status?: 'active' | 'pending';
+    // Manual members created by the group owner. A real account can assume one
+    // same-name virtual member when the owner approves the join request.
+    virtual?: boolean;
 }
 
 export interface Expense {

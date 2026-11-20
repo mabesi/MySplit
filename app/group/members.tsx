@@ -16,10 +16,33 @@ export default function MembersScreen() {
     if (!currentGroup) return null;
 
     const handleAddMember = async () => {
-        if (!newMemberName) return;
-        await addMember(newMemberName);
+        const name = newMemberName.trim();
+        if (!name) return;
+
+        const result = await addMember(name);
+        if (!result.success) {
+            Alert.alert(
+                i18n.t('error'),
+                i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
+            );
+            return;
+        }
+
         setShowAddMember(false);
         setNewMemberName('');
+    };
+
+    const handleApproveMember = async (memberId: string) => {
+        const result = await approveMember(memberId);
+        if (result.success) return;
+
+        const messageKey = result.status === 'name_reserved'
+            ? 'nameReservedOwner'
+            : result.status === 'name_taken'
+                ? 'nameTaken'
+                : 'joinError';
+
+        Alert.alert(i18n.t('error'), i18n.t(messageKey));
     };
 
     const handleRemoveMember = (memberId: string, memberName: string) => {
@@ -67,7 +90,7 @@ export default function MembersScreen() {
                                         <Text style={styles.memberName}>{m.name}</Text>
                                     </View>
                                     <View style={styles.actions}>
-                                        <TouchableOpacity onPress={() => approveMember(m.id)}>
+                                        <TouchableOpacity onPress={() => handleApproveMember(m.id)}>
                                             <Ionicons name="checkmark-circle" size={28} color="#35b288" />
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={() => rejectMember(m.id)}>
