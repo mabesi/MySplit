@@ -15,7 +15,8 @@ export interface Expense {
     amount: number;
     paidBy: string; // Member ID
     splitAmong: string[]; // Member IDs
-    date: number; // Timestamp of expense date
+    date: number; // Timestamp used for sorting and legacy compatibility
+    dateString?: string; // Calendar date YYYY-MM-DD used for display
     createdBy: string; // Member ID who created the expense
     createdAt: number;
 }

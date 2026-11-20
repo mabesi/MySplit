@@ -13,10 +13,21 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
 import { SyncIndicator } from '../../components/SyncIndicator';
 import { formatAmount, parseAmount } from '../../utils/number';
+import { expenseDateString, formatDateString, parseDateInput, toDateInputValue } from '../../utils/date';
 
 // Settlements are stored as expenses using the translated title, including legacy values.
 const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
 const isSettlement = (expense: { title: string }) => SETTLEMENT_KEYS.includes(expense.title);
+
+// Legacy regular expenses stored the calendar date as UTC midnight; legacy
+// settlements stored Date.now(). Use local time only for the latter.
+function expenseDisplayDate(expense: any): string {
+    if (isSettlement(expense) && !expense.dateString) {
+        const timestamp = expense.date || expense.createdAt;
+        return timestamp ? toDateInputValue(new Date(timestamp)) : toDateInputValue();
+    }
+    return expenseDateString(expense);
+}
 
 export default function GroupDetails() {
     const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
@@ -37,7 +48,7 @@ export default function GroupDetails() {
     // Add Expense Form State
     const [expenseTitle, setExpenseTitle] = useState('');
     const [expenseAmount, setExpenseAmount] = useState('');
-    const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
+    const [expenseDate, setExpenseDate] = useState(toDateInputValue()); // YYYY-MM-DD (local)
     const [paidBy, setPaidBy] = useState('');
     const [splitAmong, setSplitAmong] = useState<string[]>([]);
 
@@ -205,12 +216,12 @@ export default function GroupDetails() {
             return;
         }
 
-        const dateTimestamp = new Date(expenseDate).getTime();
-        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp);
+        const dateTimestamp = parseDateInput(expenseDate).getTime();
+        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate);
         setShowAddExpense(false);
         setExpenseTitle('');
         setExpenseAmount('');
-        setExpenseDate(new Date().toISOString().split('T')[0]);
+        setExpenseDate(toDateInputValue());
         setPaidBy('');
     };
 
@@ -367,7 +378,7 @@ export default function GroupDetails() {
                                             ${formatAmount(item.amount, i18n.locale)}
                                         </Text>
                                         <Text style={styles.expenseDate}>
-                                            {new Date(item.date || item.createdAt).toLocaleDateString()}
+                                            {formatDateString(expenseDisplayDate(item), i18n.locale)}
                                         </Text>
                                     </View>
                                     {/* Delete button - only for creator or group owner */}
@@ -516,13 +527,13 @@ export default function GroupDetails() {
                         </TouchableOpacity>
                         {showDatePicker && (
                             <DateTimePicker
-                                value={new Date(expenseDate)}
+                                value={parseDateInput(expenseDate)}
                                 mode="date"
                                 display="default"
                                 onChange={(event, selectedDate) => {
                                     setShowDatePicker(false);
                                     if (selectedDate) {
-                                        setExpenseDate(selectedDate.toISOString().split('T')[0]);
+                                        setExpenseDate(toDateInputValue(selectedDate));
                                     }
                                 }}
                             />

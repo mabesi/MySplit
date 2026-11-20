@@ -20,6 +20,7 @@ import {
     withMemberIds
 } from '../utils/memberLogic';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isValidDateInput, toDateInputValue } from '../utils/date';
 // @ts-ignore
 import { auth as firebaseAuth } from '../firebaseConfig';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -39,7 +40,7 @@ interface GroupContextType {
     createGroup: (name: string, userName: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
     joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string; isActive?: boolean }>;
-    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number) => Promise<void>;
+    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string) => Promise<void>;
     addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
     deleteExpense: (expenseId: string) => Promise<void>;
@@ -643,7 +644,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== ADD EXPENSE ==========
-    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now()) => {
+    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string) => {
         if (!currentGroup) return;
 
         const newExpense: Expense = {
@@ -653,6 +654,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             paidBy,
             splitAmong,
             date,
+            dateString: dateString && isValidDateInput(dateString)
+                ? dateString
+                : toDateInputValue(new Date(date)),
             createdAt: Date.now(),
             createdBy: userId || 'offline-user'
         };
