@@ -15,6 +15,8 @@ import {
 import { db } from '../firebaseConfig';
 import { StorageService } from './StorageInterface';
 import { Group, Expense, Member } from '../types';
+import { getDeviceCurrency } from '../utils/deviceCurrency';
+import { normalizeCurrency } from '../utils/currency';
 import {
     applyMemberApproval,
     applyMemberMerge,
@@ -30,13 +32,14 @@ const generateId = () => Math.random().toString(36).substring(2, 15) + Math.rand
 
 export class FirebaseService implements StorageService {
 
-    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group> {
+    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string, currency?: string): Promise<Group> {
         const groupId = customId || generateId();
         const creatorId = creator.id; // Use provided ID
 
         const newGroup: Group = {
             id: groupId,
             name,
+            currency: normalizeCurrency(currency || getDeviceCurrency()),
             ownerId: creatorId,
             createdAt: Date.now(),
             updatedAt: Date.now(),

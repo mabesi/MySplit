@@ -8,6 +8,8 @@ import {
     prepareMemberApproval,
     withMemberIds
 } from '../utils/memberLogic';
+import { getDeviceCurrency } from '../utils/deviceCurrency';
+import { normalizeCurrency } from '../utils/currency';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -131,7 +133,7 @@ export class MockService implements StorageService {
         subs.forEach(cb => cb(group));
     }
 
-    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group> {
+    async createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string, currency?: string): Promise<Group> {
         // Generate ID: name-random
         const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         const randomSuffix = Math.random().toString(36).substring(2, 6);
@@ -140,6 +142,7 @@ export class MockService implements StorageService {
         const newGroup: Group = buildGroup({
             id: groupId,
             name,
+            currency: normalizeCurrency(currency || getDeviceCurrency()),
             ownerId: creator.id,
             createdAt: Date.now(),
             updatedAt: Date.now(),

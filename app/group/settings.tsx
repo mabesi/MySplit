@@ -7,15 +7,20 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import i18n from '../../i18n/translations';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
+import { CurrencyPicker } from '../../components/CurrencyPicker';
+import { formatCurrencyAmount, normalizeCurrency } from '../../utils/currency';
 
 export default function SettingsScreen() {
     const router = useRouter();
-    const { currentGroup, updateGroupImage, deleteGroup, userId, isLoading } = useGroup();
+    const { currentGroup, updateGroupImage, updateGroupCurrency, deleteGroup, userId, isLoading } = useGroup();
     const [imageUrl, setImageUrl] = useState('');
+    const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
     if (!currentGroup) return null;
 
     const isOwner = currentGroup.ownerId === userId;
+    const currency = normalizeCurrency(currentGroup.currency);
+    const canChangeCurrency = isOwner && (!currentGroup.currency || currentGroup.expenses.length === 0);
 
     const pickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -134,6 +139,38 @@ export default function SettingsScreen() {
                     </View>
                 )}
 
+                {/* Currency */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>{i18n.t('currency')}</Text>
+                    <View style={styles.card}>
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={() => canChangeCurrency && setShowCurrencyPicker(true)}
+                            disabled={!canChangeCurrency}
+                        >
+                            <View style={styles.menuIcon}>
+                                <Ionicons name="cash-outline" size={20} color="#35b288" />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.menuText}>{currency}</Text>
+                                <Text style={styles.cardSubtitle}>
+                                    {formatCurrencyAmount(1234.56, currency, i18n.locale)}
+                                </Text>
+                            </View>
+                            {canChangeCurrency ? (
+                                <Ionicons name="chevron-forward" size={20} color="#64748B" />
+                            ) : (
+                                <Ionicons name="lock-closed-outline" size={18} color="#64748B" />
+                            )}
+                        </TouchableOpacity>
+                        {!canChangeCurrency && (
+                            <Text style={styles.currencyNote}>
+                                {isOwner ? i18n.t('currencyLockedMessage') : i18n.t('ownerOnlyCurrency')}
+                            </Text>
+                        )}
+                    </View>
+                </View>
+
                 {/* Members Navigation */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>{i18n.t('management')}</Text>
@@ -172,6 +209,13 @@ export default function SettingsScreen() {
                     </View>
                 )}
             </ScrollView>
+
+            <CurrencyPicker
+                visible={showCurrencyPicker}
+                selected={currency}
+                onSelect={updateGroupCurrency}
+                onClose={() => setShowCurrencyPicker(false)}
+            />
         </ScreenWrapper>
     );
 }
@@ -196,6 +240,7 @@ const styles = StyleSheet.create({
     editBadge: { position: 'absolute', bottom: -4, right: -4, backgroundColor: '#6366F1', width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#1E293B' },
     cardTitle: { fontSize: 16, fontWeight: '600', color: '#F8FAFC' },
     cardSubtitle: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
+    currencyNote: { fontSize: 12, color: '#64748B', paddingHorizontal: 12, paddingBottom: 12, lineHeight: 17 },
     saveButton: { marginTop: 16, backgroundColor: '#35b288', padding: 12, borderRadius: 12, alignItems: 'center' },
     saveButtonText: { color: 'white', fontWeight: 'bold' },
     menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },

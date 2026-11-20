@@ -13,6 +13,7 @@ export interface Expense {
     id: string;
     title: string;
     amount: number;
+    amountMinor?: number; // Amount in the group currency's minor units
     paidBy: string; // Member ID
     splitAmong: string[]; // Member IDs
     date: number; // Timestamp used for sorting and legacy compatibility
@@ -24,6 +25,7 @@ export interface Expense {
 export interface Group {
     id: string;
     name: string;
+    currency?: string; // ISO 4217 code; one currency per group
     imageUrl?: string;
     ownerId: string;
     createdAt: number;

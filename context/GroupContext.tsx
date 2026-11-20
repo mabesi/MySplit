@@ -21,6 +21,8 @@ import {
 } from '../utils/memberLogic';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isValidDateInput, toDateInputValue } from '../utils/date';
+import { fromMinorUnits, normalizeCurrency, toMinorUnits } from '../utils/currency';
+import { getDeviceCurrency } from '../utils/deviceCurrency';
 // @ts-ignore
 import { auth as firebaseAuth } from '../firebaseConfig';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -37,15 +39,16 @@ interface GroupContextType {
     myGroups: string[];
     userId: string;
     isLoading: boolean;
-    createGroup: (name: string, userName: string) => Promise<string>;
+    createGroup: (name: string, userName: string, currency?: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
     joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string; isActive?: boolean }>;
-    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string) => Promise<void>;
+    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string, amountMinor?: number) => Promise<void>;
     addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
     deleteExpense: (expenseId: string) => Promise<void>;
     deleteGroup: () => Promise<void>;
     updateGroupImage: (url: string) => Promise<void>;
+    updateGroupCurrency: (currency: string) => Promise<void>;
     approveMember: (memberId: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'not_found' | 'error' }>;
     rejectMember: (memberId: string) => Promise<void>;
     refreshMyGroups: () => Promise<void>;
@@ -381,7 +384,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== CREATE GROUP ==========
-    const createGroup = async (name: string, userName: string) => {
+    const createGroup = async (name: string, userName: string, currency?: string) => {
         if (!userId) {
             alert("Erro: Usuário não autenticado. Tente reiniciar o app.");
             return '';
@@ -396,6 +399,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const newGroup: Group = {
                 id: newGroupId,
                 name: name,
+                currency: normalizeCurrency(currency || getDeviceCurrency()),
                 ownerId: userId,
                 createdAt: now,
                 updatedAt: now,
@@ -644,13 +648,20 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== ADD EXPENSE ==========
-    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string) => {
+    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string, amountMinorParam?: number) => {
         if (!currentGroup) return;
+
+        const currency = normalizeCurrency(currentGroup.currency);
+        const amountMinor = amountMinorParam && amountMinorParam > 0
+            ? Math.round(amountMinorParam)
+            : toMinorUnits(amount, currency);
+        if (amountMinor <= 0) return;
 
         const newExpense: Expense = {
             id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
             title,
-            amount,
+            amount: fromMinorUnits(amountMinor, currency),
+            amountMinor,
             paidBy,
             splitAmong,
             date,
@@ -861,6 +872,36 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
+    // ========== UPDATE GROUP CURRENCY ==========
+    const updateGroupCurrency = async (currency: string) => {
+        if (!currentGroup) return;
+        if (currentGroup.ownerId !== userId) return;
+
+        const normalized = normalizeCurrency(currency);
+        if (currentGroup.currency === normalized) return;
+
+        // A group with expenses can only change currency if it never had one
+        // (legacy group being labeled for the first time).
+        if (currentGroup.currency && currentGroup.expenses.length > 0) return;
+
+        const updatedGroup = {
+            ...currentGroup,
+            currency: normalized,
+            updatedAt: Date.now()
+        };
+
+        pendingGroups.current.add(currentGroup.id);
+        await saveGroupLocally(updatedGroup);
+        setCurrentGroup(updatedGroup);
+
+        await enqueueOperation({
+            id: makeOperationId('group-currency'),
+            groupId: currentGroup.id,
+            type: 'updateGroup',
+            payload: { currency: normalized }
+        });
+    };
+
     // ========== APPROVE MEMBER ==========
     const approveMember = async (memberId: string): Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'not_found' | 'error' }> => {
         if (!currentGroup) return { success: false, status: 'error' };
@@ -916,6 +957,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             deleteExpense,
             deleteGroup,
             updateGroupImage,
+            updateGroupCurrency,
             approveMember,
             rejectMember,
             refreshMyGroups,

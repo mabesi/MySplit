@@ -12,7 +12,7 @@ import { ScreenWrapper } from '../../components/ScreenWrapper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
 import { SyncIndicator } from '../../components/SyncIndicator';
-import { formatAmount, parseAmount } from '../../utils/number';
+import { formatCurrencyAmount, formatCurrencyMinor, fromMinorUnits, normalizeCurrency, parseCurrencyAmount, toMinorUnits } from '../../utils/currency';
 import { expenseDateString, formatDateString, parseDateInput, toDateInputValue } from '../../utils/date';
 
 // Settlements are stored as expenses using the translated title, including legacy values.
@@ -59,6 +59,9 @@ export default function GroupDetails() {
             ? currentGroup.activeMemberIds.includes(userId)
             : currentGroup.members.some(m => m.id === userId && (m.status ?? 'active') === 'active'))
         : false;
+
+    const currency = currentGroup ? normalizeCurrency(currentGroup.currency) : 'BRL';
+    const hasCurrency = !!currentGroup?.currency;
 
     useEffect(() => {
         if (!id) return;
@@ -195,6 +198,11 @@ export default function GroupDetails() {
     }
 
     const handleAddExpense = async () => {
+        if (!currentGroup.currency) {
+            alert(i18n.t('setCurrencyFirst'));
+            return;
+        }
+
         const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
         const activeMemberIds = new Set(activeMembers.map(m => m.id));
         const validSplitAmong = splitAmong.filter(id => activeMemberIds.has(id));
@@ -209,15 +217,16 @@ export default function GroupDetails() {
             return;
         }
 
-        const parsedAmount = parseAmount(expenseAmount);
+        const parsedMinor = parseCurrencyAmount(expenseAmount, currency);
 
-        if (parsedAmount === null || parsedAmount <= 0) {
+        if (parsedMinor === null) {
             alert(i18n.t('invalidAmount'));
             return;
         }
 
+        const parsedAmount = fromMinorUnits(parsedMinor, currency);
         const dateTimestamp = parseDateInput(expenseDate).getTime();
-        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate);
+        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate, parsedMinor);
         setShowAddExpense(false);
         setExpenseTitle('');
         setExpenseAmount('');
@@ -251,6 +260,11 @@ export default function GroupDetails() {
     };
 
     const handleSettleUp = (fromName: string, toName: string, amount: number) => {
+        if (!currentGroup.currency) {
+            alert(i18n.t('setCurrencyFirst'));
+            return;
+        }
+
         const fromMember = currentGroup.members.find(m => m.name === fromName);
         const toMember = currentGroup.members.find(m => m.name === toName);
 
@@ -258,7 +272,7 @@ export default function GroupDetails() {
 
         Alert.alert(
             i18n.t('settleUp'),
-            i18n.t('confirmSettle', { amount: formatAmount(amount, i18n.locale), from: fromName, to: toName }),
+            i18n.t('confirmSettle', { amount: formatCurrencyAmount(amount, currency, i18n.locale), from: fromName, to: toName }),
             [
                 { text: i18n.t('cancel'), style: "cancel" },
                 {
@@ -325,10 +339,17 @@ export default function GroupDetails() {
                 <View style={styles.totalContainer}>
                     <Text style={styles.statLabel}>{i18n.t('totalExpenses')}</Text>
                     <Text style={styles.statValue}>
-                        ${formatAmount(currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + e.amount, 0), i18n.locale)}
+                        {formatCurrencyMinor(currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + (typeof e.amountMinor === 'number' ? e.amountMinor : toMinorUnits(e.amount, currency)), 0), currency, i18n.locale)}
                     </Text>
                 </View>
             </View>
+
+            {!hasCurrency && (
+                <View style={styles.currencyBanner}>
+                    <Ionicons name="cash-outline" size={16} color="#F59E0B" />
+                    <Text style={styles.currencyBannerText}>{i18n.t('setCurrencyFirst')}</Text>
+                </View>
+            )}
 
             {/* ... (Tabs) ... */}
             <View style={styles.tabs}>
@@ -375,7 +396,7 @@ export default function GroupDetails() {
                                     </View>
                                     <View style={styles.expenseRight}>
                                         <Text style={[styles.expenseAmount, settlement && styles.settlementAmount]}>
-                                            ${formatAmount(item.amount, i18n.locale)}
+                                            {formatCurrencyMinor(typeof item.amountMinor === 'number' ? item.amountMinor : toMinorUnits(item.amount, currency), currency, i18n.locale)}
                                         </Text>
                                         <Text style={styles.expenseDate}>
                                             {formatDateString(expenseDisplayDate(item), i18n.locale)}
@@ -416,7 +437,7 @@ export default function GroupDetails() {
                                 <View key={b.memberId} style={styles.balanceItem}>
                                     <Text style={styles.memberName}>{b.memberName}</Text>
                                     <Text style={[styles.balanceAmount, b.balance >= 0 ? styles.positive : styles.negative]}>
-                                        ${formatAmount(Math.abs(b.balance), i18n.locale)}
+                                        {formatCurrencyAmount(Math.abs(b.balance), currency, i18n.locale)}
                                     </Text>
                                 </View>
                             ))
@@ -435,9 +456,9 @@ export default function GroupDetails() {
                                         <Text style={styles.transactionText}>
                                             <Text style={{ fontWeight: 'bold', color: '#F8FAFC' }}>{t.from}</Text> {i18n.t('pays')} <Text style={{ fontWeight: 'bold', color: '#F8FAFC' }}>{t.to}</Text>
                                         </Text>
-                                        <Text style={styles.transactionAmount}>${formatAmount(t.amount, i18n.locale)}</Text>
+                                        <Text style={styles.transactionAmount}>{formatCurrencyAmount(t.amount, currency, i18n.locale)}</Text>
                                     </View>
-                                    {isActiveMember && (
+                                    {isActiveMember && hasCurrency && (
                                         <TouchableOpacity
                                             style={styles.settleButton}
                                             onPress={() => handleSettleUp(t.from, t.to, t.amount)}
@@ -453,8 +474,8 @@ export default function GroupDetails() {
             </View>
 
             {/* ... (FABs) ... */}
-            {/* Expandable FAB (active members only) */}
-            {isActiveMember && (
+            {/* Expandable FAB (active members only, after currency is set) */}
+            {isActiveMember && hasCurrency && (
             <View style={styles.fabContainer}>
                 {isFabExpanded && (
                     <>
@@ -507,13 +528,13 @@ export default function GroupDetails() {
                         />
                         <TextInput
                             style={styles.input}
-                            placeholder={i18n.t('amount')}
+                            placeholder={`${i18n.t('amount')} (${currency})`}
                             placeholderTextColor="#64748B"
                             keyboardType="decimal-pad"
                             value={expenseAmount}
                             onChangeText={(text) => {
-                                // Keep digits and both separators; parseAmount
-                                // validates the final value on submit.
+                                // Keep digits and both separators;
+                                // parseCurrencyAmount validates on submit.
                                 setExpenseAmount(text.replace(/[^0-9.,]/g, ''));
                             }}
                         />
@@ -652,6 +673,20 @@ const styles = StyleSheet.create({
     groupImageSquare: { width: 80, height: 80, borderRadius: 16, resizeMode: 'cover' },
     groupImagePlaceholder: { width: 80, height: 80, borderRadius: 16, backgroundColor: '#1E293B', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#334155' },
     totalContainer: { flex: 1, alignItems: 'flex-end' },
+    currencyBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(245, 158, 11, 0.12)',
+        borderColor: 'rgba(245, 158, 11, 0.35)',
+        borderWidth: 1,
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginHorizontal: 16,
+        marginBottom: 8
+    },
+    currencyBannerText: { flex: 1, color: '#F59E0B', fontSize: 12 },
     statLabel: { color: '#94A3B8', fontSize: 13 },
     statValue: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
     tabs: {

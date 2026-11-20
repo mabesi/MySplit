@@ -6,7 +6,7 @@
  * separators are treated as thousands separators. Returns null for invalid
  * input instead of silently truncating it.
  */
-export function parseAmount(input: string): number | null {
+function normalizeAmountString(input: string): string | null {
     const value = input.trim().replace(/\s/g, '');
     if (!value) return null;
 
@@ -43,10 +43,36 @@ export function parseAmount(input: string): number | null {
         normalized = value;
     }
 
-    if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
+    return /^\d+(\.\d+)?$/.test(normalized) ? normalized : null;
+}
+
+export function parseAmount(input: string): number | null {
+    const normalized = normalizeAmountString(input);
+    if (normalized === null) return null;
 
     const amount = Number(normalized);
     return Number.isFinite(amount) ? amount : null;
+}
+
+/**
+ * Parses a localized amount directly into minor units, rounding half-up to the
+ * requested number of fraction digits. Avoids floating-point drift such as
+ * 1.005 * 100 = 100.49999999999999.
+ */
+export function parseAmountToMinor(input: string, fractionDigits: number): number | null {
+    const normalized = normalizeAmountString(input);
+    if (normalized === null) return null;
+
+    const digits = Math.max(0, Math.floor(fractionDigits));
+    const [integerPart, fractionPart = ''] = normalized.split('.');
+    const padded = (fractionPart + '0'.repeat(digits + 1)).slice(0, digits + 1);
+
+    const whole = Number(integerPart || '0');
+    let minor = whole * 10 ** digits + Number(padded.slice(0, digits) || '0');
+
+    if (Number(padded[digits] || '0') >= 5) minor += 1;
+
+    return minor;
 }
 
 /**

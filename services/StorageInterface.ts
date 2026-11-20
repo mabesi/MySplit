@@ -7,7 +7,7 @@ export interface StorageService {
     /**
      * Creates a new group and returns it.
      */
-    createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string): Promise<Group>;
+    createGroup(name: string, creator: { id: string; name: string; email?: string }, customId?: string, currency?: string): Promise<Group>;
 
     /**
      * Retrieves a group by ID.

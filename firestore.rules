@@ -156,6 +156,15 @@ service cloud.firestore {
         request.resource.data.updatedAt is float;
     }
 
+    function sameCurrency(oldData) {
+      return request.resource.data.get('currency', '') ==
+        oldData.get('currency', '');
+    }
+
+    function validCurrency(currency) {
+      return currency is string && currency.matches('^[A-Z]{3}$');
+    }
+
     function isNameUpdateAllowed(oldData, added) {
       return added.size() == 0 ||
         (added.size() == 1 &&
@@ -186,6 +195,7 @@ service cloud.firestore {
         added[0].get('status', 'active') == 'pending' &&
         added[0].get('virtual', false) == false &&
         !isOwnerName(oldData, added[0].name) &&
+        sameCurrency(oldData) &&
         newIds is list &&
         newIds.toSet().size() == newIds.size() &&
         newIds.size() == oldIds.size() + 1 &&
@@ -212,6 +222,7 @@ service cloud.firestore {
         validMember(member) &&
         !(member.id in oldIds) &&
         !isOwnerName(oldData, member.name) &&
+        sameCurrency(oldData) &&
         newIds is list &&
         newIds.toSet().size() == newIds.size() &&
         newIds.size() == oldIds.size() + 1 &&
@@ -236,6 +247,7 @@ service cloud.firestore {
     function canAddExpense(oldData, added, removed) {
       let activeIds = activeMemberIdsOf(oldData);
       return isActiveMember(oldData) &&
+        sameCurrency(oldData) &&
         hasSameMemberIds(oldData) &&
         hasSameActiveMemberIds(oldData) &&
         added.size() == 1 &&
@@ -253,6 +265,7 @@ service cloud.firestore {
     // The creator of an expense or the owner removes exactly one expense.
     function canDeleteExpense(oldData, added, removed) {
       return isActiveMember(oldData) &&
+        sameCurrency(oldData) &&
         hasSameMemberIds(oldData) &&
         hasSameActiveMemberIds(oldData) &&
         added.size() == 0 &&
@@ -267,6 +280,7 @@ service cloud.firestore {
     // is fixed at index 0 and can never be removed.
     function canManageMembers(oldData, added) {
       return isOwner(oldData) &&
+        sameCurrency(oldData) &&
         request.resource.data.members is list &&
         request.resource.data.members.size() > 0 &&
         request.resource.data.members.size() <= 100 &&
@@ -282,6 +296,7 @@ service cloud.firestore {
     // The owner changes only the group name/image.
     function canUpdateSummary(oldData) {
       return isOwner(oldData) &&
+        sameCurrency(oldData) &&
         hasSameMembers(oldData) &&
         hasSameExpenses(oldData) &&
         hasSameMemberIds(oldData) &&
@@ -304,12 +319,28 @@ service cloud.firestore {
     // deduplicates the element, so only updatedAt changes on a replay).
     function isNoOpRetry(oldData) {
       return isMember(oldData) &&
+        sameCurrency(oldData) &&
         sameMeta(oldData) &&
         sameSummary(oldData) &&
         hasSameMembers(oldData) &&
         hasSameExpenses(oldData) &&
         hasSameMemberIds(oldData) &&
         hasSameActiveMemberIds(oldData) &&
+        validUpdatedAt();
+    }
+
+    // The owner can set the currency of a legacy group once, or change it while
+    // the group still has no expenses.
+    function canUpdateCurrency(oldData) {
+      return isOwner(oldData) &&
+        hasSameMembers(oldData) &&
+        hasSameExpenses(oldData) &&
+        hasSameMemberIds(oldData) &&
+        hasSameActiveMemberIds(oldData) &&
+        sameMeta(oldData) &&
+        sameSummary(oldData) &&
+        validCurrency(request.resource.data.currency) &&
+        (!('currency' in oldData) || oldData.expenses.size() == 0) &&
         validUpdatedAt();
     }
 
@@ -322,12 +353,14 @@ service cloud.firestore {
       let summarySame = sameSummary(oldData);
       let membersSame = hasSameMembers(oldData);
       let expensesSame = hasSameExpenses(oldData);
+      let currencySame = sameCurrency(oldData);
       let owner = isOwner(oldData);
 
       return signedIn() && metaOk && validUpdatedAt() && (
         (owner && (
-          (summarySame && canManageMembers(oldData, addedM)) ||
-          (membersSame && expensesSame && canUpdateSummary(oldData))
+          (summarySame && currencySame && canManageMembers(oldData, addedM)) ||
+          (membersSame && expensesSame && currencySame && canUpdateSummary(oldData)) ||
+          (membersSame && expensesSame && summarySame && canUpdateCurrency(oldData))
         )) ||
         (summarySame && canSelfJoin(oldData, addedM, removedM)) ||
         (summarySame && canAppendMember(oldData, addedM, removedM)) ||
@@ -357,9 +390,10 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.keys().hasOnly([
           'id', 'name', 'ownerId', 'createdAt', 'updatedAt', 'version',
-          'members', 'expenses', 'memberIds', 'activeMemberIds'
+          'members', 'expenses', 'memberIds', 'activeMemberIds', 'currency'
         ]) &&
         request.resource.data.id == groupId &&
+        validCurrency(request.resource.data.currency) &&
         request.resource.data.ownerId == uid() &&
         request.resource.data.name is string &&
         normalizedName(request.resource.data.name).size() > 0 &&

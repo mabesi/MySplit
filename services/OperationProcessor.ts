@@ -192,7 +192,8 @@ export class OperationProcessor {
             await this.storage.createGroup(
                 localGroup.name,
                 { id: owner.id, name: owner.name, email: owner.email },
-                localGroup.id
+                localGroup.id,
+                localGroup.currency
             );
             serverGroup = await this.storage.getGroup(groupId);
         }

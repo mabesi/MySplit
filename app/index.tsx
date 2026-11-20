@@ -9,6 +9,9 @@ import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { SyncIndicator } from '../components/SyncIndicator';
+import { CurrencyPicker } from '../components/CurrencyPicker';
+import { formatCurrencyAmount } from '../utils/currency';
+import { getDeviceCurrency } from '../utils/deviceCurrency';
 
 // Helper component for each group in the grid
 const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
@@ -106,6 +109,8 @@ export default function HomeScreen() {
     const insets = useSafeAreaInsets();
     const { joinGroupId } = useLocalSearchParams<{ joinGroupId?: string }>();
     const [showJoinModal, setShowJoinModal] = useState(false); // Added this state
+    const [currency, setCurrency] = useState(getDeviceCurrency());
+    const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
     const onRefresh = useCallback(async () => {
         setRefreshing(true);
@@ -132,7 +137,7 @@ export default function HomeScreen() {
     const handleCreate = async () => {
         if (!name || !userName) return alert(i18n.t('fillAllFields'));
         try {
-            const id = await createGroup(name.toUpperCase(), userName);
+            const id = await createGroup(name.toUpperCase(), userName, currency);
             if (id) {
                 setName(''); // Clear group name only
                 router.push(`/group/${id}`);
@@ -328,6 +333,16 @@ export default function HomeScreen() {
                                             />
                                         </View>
                                         <TouchableOpacity
+                                            style={styles.inputContainer}
+                                            onPress={() => setShowCurrencyPicker(true)}
+                                        >
+                                            <Ionicons name="cash-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
+                                            <Text style={styles.currencyText} numberOfLines={1}>
+                                                {i18n.t('currency')}: {currency} · {formatCurrencyAmount(1234.56, currency, i18n.locale)}
+                                            </Text>
+                                            <Ionicons name="chevron-forward" size={18} color="#64748B" style={styles.currencyChevron} />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
                                             style={[styles.button, isLoading && { opacity: 0.7 }]}
                                             onPress={handleCreate}
                                             disabled={isLoading}
@@ -416,6 +431,13 @@ export default function HomeScreen() {
                     <Ionicons name="help-circle" size={40} color="white" />
                 </LinearGradient>
             </TouchableOpacity>
+
+            <CurrencyPicker
+                visible={showCurrencyPicker}
+                selected={currency}
+                onSelect={setCurrency}
+                onClose={() => setShowCurrencyPicker(false)}
+            />
         </ScreenWrapper>
     );
 }
@@ -614,6 +636,15 @@ const styles = StyleSheet.create({
         color: '#F8FAFC',
         padding: 12,
         fontSize: 15,
+    },
+    currencyText: {
+        flex: 1,
+        color: '#F8FAFC',
+        paddingVertical: 12,
+        fontSize: 14,
+    },
+    currencyChevron: {
+        paddingRight: 12,
     },
     button: {
         marginTop: 4,
