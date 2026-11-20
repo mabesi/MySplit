@@ -13,6 +13,10 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
 import { SyncIndicator } from '../../components/SyncIndicator';
 
+// Settlements are stored as expenses using the translated title, including legacy values.
+const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
+const isSettlement = (expense: { title: string }) => SETTLEMENT_KEYS.includes(expense.title);
+
 export default function GroupDetails() {
     const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
     const router = useRouter();
@@ -259,7 +263,7 @@ export default function GroupDetails() {
                 <View style={styles.totalContainer}>
                     <Text style={styles.statLabel}>{i18n.t('totalExpenses')}</Text>
                     <Text style={styles.statValue}>
-                        ${currentGroup.expenses.reduce((sum: number, e: any) => sum + e.amount, 0).toFixed(2)}
+                        ${currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + e.amount, 0).toFixed(2)}
                     </Text>
                 </View>
             </View>
@@ -287,17 +291,15 @@ export default function GroupDetails() {
                         data={currentGroup.expenses.slice().reverse()} // Newest first
                         keyExtractor={item => item.id}
                         renderItem={({ item }) => {
-                            // Detect settlements by the internal key or legacy translations
-                            const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
-                            const isSettlement = SETTLEMENT_KEYS.includes(item.title);
-                            const displayTitle = isSettlement ? i18n.t('settlement') : item.title;
+                            const settlement = isSettlement(item);
+                            const displayTitle = settlement ? i18n.t('settlement') : item.title;
                             return (
-                                <View style={[styles.expenseItem, isSettlement && styles.settlementItem]}>
-                                    <View style={[styles.expenseIcon, isSettlement && styles.settlementIcon]}>
+                                <View style={[styles.expenseItem, settlement && styles.settlementItem]}>
+                                    <View style={[styles.expenseIcon, settlement && styles.settlementIcon]}>
                                         <Ionicons
-                                            name={isSettlement ? "checkmark" : "receipt-outline"}
+                                            name={settlement ? "checkmark" : "receipt-outline"}
                                             size={18}
-                                            color={isSettlement ? "#35b288" : "#94A3B8"}
+                                            color={settlement ? "#35b288" : "#94A3B8"}
                                         />
                                     </View>
                                     <View style={styles.expenseDetails}>
@@ -310,7 +312,7 @@ export default function GroupDetails() {
                                         </Text>
                                     </View>
                                     <View style={styles.expenseRight}>
-                                        <Text style={[styles.expenseAmount, isSettlement && styles.settlementAmount]}>
+                                        <Text style={[styles.expenseAmount, settlement && styles.settlementAmount]}>
                                             ${item.amount.toFixed(2)}
                                         </Text>
                                         <Text style={styles.expenseDate}>
