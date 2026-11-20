@@ -1,10 +1,14 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { AppState } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { Group, Expense, Member } from '../types';
 import { StorageService } from '../services/StorageInterface';
 import { FirebaseService } from '../services/FirebaseService';
 import { MockService } from '../services/MockService';
 import { LocalGroupStore } from '../services/LocalGroupStore';
+import { OperationQueue, NewOperation } from '../services/OperationQueue';
+import { OperationProcessor } from '../services/OperationProcessor';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore
 import { auth as firebaseAuth } from '../firebaseConfig';
@@ -13,6 +17,9 @@ import i18n from '../i18n/translations';
 
 const USE_MOCK = false;
 const storageService: StorageService = USE_MOCK ? new MockService() : new FirebaseService();
+
+const makeOperationId = (prefix: string) =>
+    `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
 interface GroupContextType {
     currentGroup: Group | null;
@@ -41,8 +48,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [myGroups, setMyGroups] = useState<string[]>([]);
     const [userId, setUserId] = useState<string>('');
     const [isLoading, setIsLoading] = useState(false);
-    const [dirtyGroups, setDirtyGroups] = useState<Set<string>>(new Set());
     const isGroupsLoaded = React.useRef(false);
+
+    // Groups that still have operations waiting in the outbox. Kept in a ref
+    // (besides the queue itself) so subscription callbacks can check it
+    // synchronously and avoid overwriting optimistic local changes.
+    const pendingGroups = useRef<Set<string>>(new Set());
 
     // Track active listeners and storageService unsubscribers per groupId
     const groupListeners = React.useRef<Map<string, Set<(group: Group | null) => void>>>(new Map());
@@ -126,9 +137,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const validGroupIds: string[] = [];
 
             for (const gId of sourceGroups) {
-                const isDirty = await LocalGroupStore.isDirty(gId);
-                if (isDirty) {
-                    // Group has pending local creation/edits, retain it
+                const hasPendingOperations =
+                    pendingGroups.current.has(gId) ||
+                    await OperationQueue.hasPendingForGroup(gId) ||
+                    await LocalGroupStore.isDirty(gId);
+
+                if (hasPendingOperations) {
+                    // Group has pending local operations, retain it
                     validGroupIds.push(gId);
                     continue;
                 }
@@ -190,130 +205,115 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         persistMyGroups(myGroups);
     }, [myGroups, userId]);
 
-    // ========== BACKGROUND SYNC ==========
+    // ========== OPERATION QUEUE (OFFLINE OUTBOX) ==========
+    const processor = useRef<OperationProcessor | null>(null);
+    if (!processor.current) {
+        processor.current = new OperationProcessor(storageService);
+    }
+
+    const refreshPendingGroups = useCallback(async () => {
+        const operations = await OperationQueue.getAll();
+        pendingGroups.current = new Set(operations.map(operation => operation.groupId));
+    }, []);
+
+    const processQueue = useCallback(async () => {
+        try {
+            await processor.current?.processAll();
+        } catch (error) {
+            console.error('[Operations] Failed to process queue:', error);
+        } finally {
+            await refreshPendingGroups();
+        }
+    }, [refreshPendingGroups]);
+
+    const enqueueOperation = useCallback(async (operation: NewOperation) => {
+        // Mark as pending synchronously so an in-flight server snapshot cannot
+        // overwrite the optimistic local change before the queue is persisted.
+        pendingGroups.current.add(operation.groupId);
+
+        try {
+            await OperationQueue.enqueue(operation);
+        } catch (error) {
+            console.error('[Operations] Failed to enqueue operation:', error);
+        }
+
+        void processQueue();
+    }, [processQueue]);
+
     useEffect(() => {
-        if (!userId || dirtyGroups.size === 0) return;
+        if (!userId) return;
 
-        const syncDirtyGroups = async () => {
-            console.log(`[Sync] Syncing ${dirtyGroups.size} dirty groups...`);
+        let cancelled = false;
 
-            for (const groupId of Array.from(dirtyGroups)) {
-                try {
-                    const localGroup = await LocalGroupStore.getGroup(groupId);
-                    if (!localGroup) {
-                        console.warn(`[Sync] Group ${groupId} not found locally, clearing dirty flag`);
-                        await LocalGroupStore.clearDirty(groupId);
-                        setDirtyGroups(prev => {
-                            const next = new Set(prev);
-                            next.delete(groupId);
-                            return next;
-                        });
-                        continue;
-                    }
+        const start = async () => {
+            // Migrate legacy dirty flags into merge operations. A dirty group
+            // had local changes that were never confirmed by the server; the
+            // merge only adds local data and updates group fields.
+            const dirtyGroupIds = await LocalGroupStore.getDirtyGroupIds();
+            for (const groupId of dirtyGroupIds) {
+                if (cancelled) return;
 
-                    // Check if group exists on server
-                    let serverGroup;
-                    try {
-                        serverGroup = await storageService.getGroup(groupId);
-                    } catch (error) {
-                        console.log(`[Sync] Could not fetch group ${groupId} from server:`, error);
-                    }
-
-                    if (!serverGroup) {
-                        // Group doesn't exist on server, create it
-                        console.log(`[Sync] Creating new group ${groupId} on server`);
-                        const owner = localGroup.members.find(m => m.id === localGroup.ownerId);
-                        if (owner) {
-                            await storageService.createGroup(
-                                localGroup.name,
-                                { id: owner.id, name: owner.name, email: owner.email },
-                                localGroup.id
-                            );
-
-                            // Members/expenses created locally before the first
-                            // sync must be uploaded too, otherwise they are
-                            // lost when the server snapshot replaces the local
-                            // copy after the dirty flag is cleared. The owner
-                            // is already part of createGroup, so skip it.
-                            for (const member of localGroup.members) {
-                                if (member.id !== owner.id) {
-                                    await storageService.addMember(groupId, member);
-                                }
-                            }
-
-                            for (const expense of localGroup.expenses) {
-                                await storageService.addExpense(groupId, expense);
-                            }
-                        }
-                    } else {
-                        // Group exists on the server. Only merge local additions;
-                        // never delete server data based on the local snapshot.
-                        // The local copy can be stale (another member may have
-                        // added members/expenses while this device was offline),
-                        // so "missing locally" does not mean "deleted".
-                        // Explicit deletions are sent directly by
-                        // removeMember/deleteExpense and must stay the only
-                        // source of delete operations.
-                        console.log(`[Sync] Merging local additions into group ${groupId}`);
-
-                        // 1. Add members that exist only locally. Status changes
-                        // are explicit operations (join/approve/reject) and are
-                        // not replayed here.
-                        for (const localMember of localGroup.members) {
-                            const serverMember = serverGroup.members.find(m => m.id === localMember.id);
-                            if (!serverMember) {
-                                await storageService.addMember(groupId, localMember);
-                            }
-                        }
-
-                        // 2. Add expenses that exist only locally. addExpense
-                        // preserves the local id/createdAt so arrayUnion is
-                        // idempotent if the write was already queued by Firestore.
-                        for (const expense of localGroup.expenses) {
-                            const existsOnServer = serverGroup.expenses.some(e => e.id === expense.id);
-                            if (!existsOnServer) {
-                                await storageService.addExpense(groupId, expense);
-                            }
-                        }
-
-                        // 3. Update group fields (name, imageUrl, etc.)
-                        const updates: Partial<Group> = {};
-                        if (localGroup.name !== serverGroup.name) updates.name = localGroup.name;
-                        if (localGroup.imageUrl !== serverGroup.imageUrl) updates.imageUrl = localGroup.imageUrl;
-
-                        if (Object.keys(updates).length > 0) {
-                            await storageService.updateGroup(groupId, updates);
-                        }
-                    }
-
-                    // Verify sync with metadata
-                    const metadata = await storageService.getGroupMetadata(groupId);
-                    if (metadata && !metadata.hasPendingWrites) {
-                        console.log(`[Sync] Group ${groupId} synced successfully`);
-                        await LocalGroupStore.clearDirty(groupId);
-                        setDirtyGroups(prev => {
-                            const next = new Set(prev);
-                            next.delete(groupId);
-                            return next;
-                        });
-                    } else {
-                        console.log(`[Sync] Group ${groupId} still has pending writes`);
-                    }
-                } catch (error) {
-                    console.error(`[Sync] Failed to sync group ${groupId}:`, error);
+                const hasPending = await OperationQueue.hasPendingForGroup(groupId);
+                if (!hasPending) {
+                    await OperationQueue.enqueue({
+                        id: `merge-${groupId}`,
+                        groupId,
+                        type: 'mergeGroup',
+                        payload: {}
+                    });
                 }
+
+                await LocalGroupStore.clearDirty(groupId);
             }
+
+            await refreshPendingGroups();
+            await processQueue();
         };
 
-        const timer = setTimeout(syncDirtyGroups, 2000);
-        return () => clearTimeout(timer);
-    }, [dirtyGroups, userId]);
+        start().catch(error => {
+            console.error('[Operations] Failed to start queue processing:', error);
+        });
 
-    // ========== HELPER: SAVE AND MARK DIRTY ==========
+        const unsubscribeQueue = OperationQueue.subscribe(() => {
+            // Only refresh the pending set here. Processing is triggered by
+            // enqueue, connectivity changes and foreground transitions, so a
+            // failing operation does not cause a retry storm.
+            void refreshPendingGroups();
+        });
+
+        const unsubscribeNetInfo = NetInfo.addEventListener(state => {
+            if (state.isConnected) {
+                void processQueue();
+            }
+        });
+
+        const appStateSubscription = AppState.addEventListener('change', state => {
+            if (state === 'active') {
+                void processQueue();
+            }
+        });
+
+        // Safety net for transient failures: retry periodically. processAll is
+        // a no-op when the queue is empty, and per-operation backoff prevents
+        // hammering a permanently failing write.
+        const retryInterval = setInterval(() => {
+            void processQueue();
+        }, 30_000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(retryInterval);
+            unsubscribeQueue();
+            unsubscribeNetInfo();
+            appStateSubscription.remove();
+        };
+    }, [userId, processQueue, refreshPendingGroups]);
+
+    // ========== HELPER: SAVE LOCALLY ==========
     const saveGroupLocally = async (group: Group) => {
+        // The local copy is the optimistic view. The outbox records the
+        // operation that still has to reach the server.
         await LocalGroupStore.saveGroup(group);
-        await LocalGroupStore.markDirty(group.id);
-        setDirtyGroups(prev => new Set(prev).add(group.id));
     };
 
     // ========== HELPER: ADD TO MY GROUPS ==========
@@ -354,12 +354,21 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 expenses: []
             };
 
-            // Save locally first
+            // Save locally first. Mark pending before the write so a snapshot
+            // arriving during AsyncStorage I/O cannot overwrite it.
+            pendingGroups.current.add(newGroupId);
             await saveGroupLocally(newGroup);
 
             // Update UI immediately
             setCurrentGroup(newGroup);
             addToMyGroups(newGroupId);
+
+            await enqueueOperation({
+                id: `create-${newGroupId}`,
+                groupId: newGroupId,
+                type: 'createGroup',
+                payload: {}
+            });
 
             console.log(`[CreateGroup] Created group ${newGroupId} locally`);
             return newGroupId;
@@ -433,19 +442,24 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // If userName provided, add as member
             if (userName) {
-                try {
-                    await storageService.addMember(groupId, { id: userId, name: userName, status: 'pending' });
+                const pendingMember: Member = { id: userId, name: userName, status: 'pending' };
 
-                    // Reload group to get updated state
-                    group = await storageService.getGroup(groupId) || group;
-                    await LocalGroupStore.saveGroup(group);
-                    setCurrentGroup(group);
-                } catch (e: any) {
-                    if (e.message === 'Name taken') {
-                        return { success: false, status: 'name_taken' as const };
-                    }
-                    throw e;
-                }
+                group = {
+                    ...group,
+                    members: [...group.members, pendingMember],
+                    updatedAt: Date.now()
+                };
+
+                pendingGroups.current.add(groupId);
+                await LocalGroupStore.saveGroup(group);
+                setCurrentGroup(group);
+
+                await enqueueOperation({
+                    id: `join-${groupId}-${userId}`,
+                    groupId,
+                    type: 'addMember',
+                    payload: pendingMember
+                });
             } else {
                 setCurrentGroup(group);
             }
@@ -481,9 +495,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup) => {
                 if (!serverGroup) {
                     console.log(`[Subscribe] Group ${groupId} does not exist on server (deleted)`);
-                    const isDirty = await LocalGroupStore.isDirty(groupId);
-                    if (isDirty) {
-                        console.log(`[Subscribe] Group ${groupId} is dirty, keeping local copy`);
+                    const hasPendingChanges =
+                        pendingGroups.current.has(groupId) ||
+                        await OperationQueue.hasPendingForGroup(groupId) ||
+                        await LocalGroupStore.isDirty(groupId);
+
+                    if (hasPendingChanges) {
+                        console.log(`[Subscribe] Group ${groupId} has pending operations, keeping local copy`);
                         return;
                     }
 
@@ -505,11 +523,14 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 }
 
                 // Group exists on server
-                const isDirty = await LocalGroupStore.isDirty(groupId);
+                const hasPendingChanges =
+                    pendingGroups.current.has(groupId) ||
+                    await OperationQueue.hasPendingForGroup(groupId) ||
+                    await LocalGroupStore.isDirty(groupId);
                 let groupToDispatch = serverGroup;
 
-                if (isDirty) {
-                    console.log(`[Subscribe] Group ${groupId} is dirty, keeping local changes`);
+                if (hasPendingChanges) {
+                    console.log(`[Subscribe] Group ${groupId} has pending operations, keeping local changes`);
                     const localGroup = await LocalGroupStore.getGroup(groupId);
                     if (localGroup) {
                         groupToDispatch = localGroup;
@@ -570,15 +591,17 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
-        // Save locally and mark dirty
+        // Save locally and enqueue the server write
+        pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        try {
-            await storageService.addExpense(currentGroup.id, newExpense);
-        } catch (error) {
-            console.error('[AddExpense] Failed to add expense to server (offline?):', error);
-        }
+        await enqueueOperation({
+            id: makeOperationId('expense-add'),
+            groupId: currentGroup.id,
+            type: 'addExpense',
+            payload: newExpense
+        });
 
         console.log(`[AddExpense] Added expense "${title}" to group ${currentGroup.id}`);
     };
@@ -599,15 +622,17 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
-        // Save locally and mark dirty
+        // Save locally and enqueue the server write
+        pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        try {
-            await storageService.addMember(currentGroup.id, newMember);
-        } catch (error) {
-            console.error('[AddMember] Failed to add member to server (offline?):', error);
-        }
+        await enqueueOperation({
+            id: makeOperationId('member-add'),
+            groupId: currentGroup.id,
+            type: 'addMember',
+            payload: newMember
+        });
 
         console.log(`[AddMember] Added member "${name}" to group ${currentGroup.id}`);
     };
@@ -626,14 +651,16 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
+        pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        try {
-            await storageService.removeMember(currentGroup.id, memberId);
-        } catch (error) {
-            console.error('[RemoveMember] Failed to remove member on server (offline?):', error);
-        }
+        await enqueueOperation({
+            id: makeOperationId('member-remove'),
+            groupId: currentGroup.id,
+            type: 'removeMember',
+            payload: { memberId }
+        });
     };
 
     // ========== DELETE EXPENSE ==========
@@ -646,14 +673,16 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
+        pendingGroups.current.add(currentGroup.id);
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        try {
-            await storageService.deleteExpense(currentGroup.id, expenseId);
-        } catch (error) {
-            console.error('[DeleteExpense] Failed to delete expense on server (offline?):', error);
-        }
+        await enqueueOperation({
+            id: makeOperationId('expense-delete'),
+            groupId: currentGroup.id,
+            type: 'deleteExpense',
+            payload: { expenseId }
+        });
     };
 
     // ========== DELETE GROUP ==========
@@ -661,29 +690,32 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!currentGroup) return;
         const groupId = currentGroup.id;
 
-        try {
-            await storageService.deleteGroup(groupId);
-        } catch (error) {
-            console.error('[DeleteGroup] Failed to delete from server:', error);
-        }
-
+        // Drop everything that was still pending for this group; the delete
+        // supersedes any previous operation. Mark it pending synchronously so
+        // an in-flight snapshot cannot resurrect the local copy.
+        pendingGroups.current.add(groupId);
+        await OperationQueue.removeGroup(groupId);
         await LocalGroupStore.deleteGroup(groupId);
+
         setMyGroups(prev => {
             const next = prev.filter(id => id !== groupId);
             persistMyGroups(next);
             return next;
         });
         setCurrentGroup(null);
-        setDirtyGroups(prev => {
-            const next = new Set(prev);
-            next.delete(groupId);
-            return next;
+
+        await enqueueOperation({
+            id: `delete-${groupId}`,
+            groupId,
+            type: 'deleteGroup',
+            payload: {}
         });
     };
 
     // ========== UPDATE GROUP IMAGE ==========
     const updateGroupImage = async (uri: string) => {
         if (!currentGroup) return;
+        const groupId = currentGroup.id;
 
         // Save locally with the URI immediately
         const updatedGroup = {
@@ -692,16 +724,26 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
+        pendingGroups.current.add(groupId);
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        console.log(`[UpdateImage] Saved image locally for group ${currentGroup.id}`);
+        const queueImageUpdate = async (imageUrl: string) => {
+            await enqueueOperation({
+                id: `update-${groupId}`,
+                groupId,
+                type: 'updateGroup',
+                payload: { imageUrl }
+            });
+        };
+
+        console.log(`[UpdateImage] Saved image locally for group ${groupId}`);
 
         // If it's a local file URI, try to upload in background
         if (uri.startsWith('file://') || uri.startsWith('data:')) {
             const performUpload = async () => {
                 try {
-                    const path = `groups/${currentGroup.id}/image_${Date.now()}`;
+                    const path = `groups/${groupId}/image_${Date.now()}`;
                     const downloadUrl = await storageService.uploadImage(uri, path);
 
                     console.log(`[UpdateImage] Uploaded image, got URL: ${downloadUrl}`);
@@ -715,13 +757,19 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
                     await saveGroupLocally(finalGroup);
                     setCurrentGroup(finalGroup);
+                    await queueImageUpdate(downloadUrl);
                 } catch (error) {
                     console.error("[UpdateImage] Upload failed, keeping local URI:", error);
-                    // Keep the local URI - sync will handle it later
+                    // Keep the local URI. The upload is retried only on a new
+                    // selection, since a local file URI cannot be uploaded by
+                    // another device.
+                    void refreshPendingGroups();
                 }
             };
 
             performUpload();
+        } else {
+            await queueImageUpdate(uri);
         }
     };
 
@@ -729,17 +777,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const approveMember = async (memberId: string) => {
         if (!currentGroup) return;
 
-        // 1. First, send to server (uses getDocFromServer to avoid stale cache)
-        try {
-            await storageService.updateMemberStatus(currentGroup.id, memberId, 'active');
-            console.log(`[ApproveMember] ✅ Member ${memberId} approved on Firestore`);
-        } catch (error) {
-            console.error('[ApproveMember] Failed to approve member on server:', error);
-            // Don't update local state if server failed — user will see real state on next sync
-            return;
-        }
-
-        // 2. Update local state only after server confirms (to stay consistent with Firestore)
+        // Apply optimistically and enqueue. The operation is retried when the
+        // device reconnects, so approving works offline too.
         const updatedGroup = {
             ...currentGroup,
             members: currentGroup.members.map(m =>
@@ -748,9 +787,18 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updatedAt: Date.now()
         };
 
-        // Save locally without marking dirty (server is already updated)
-        await LocalGroupStore.saveGroup(updatedGroup);
+        pendingGroups.current.add(currentGroup.id);
+        await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
+
+        await enqueueOperation({
+            id: `status-${currentGroup.id}-${memberId}`,
+            groupId: currentGroup.id,
+            type: 'updateMemberStatus',
+            payload: { memberId, status: 'active' }
+        });
+
+        console.log(`[ApproveMember] Queued approval for member ${memberId}`);
     };
 
     // ========== REJECT MEMBER ==========

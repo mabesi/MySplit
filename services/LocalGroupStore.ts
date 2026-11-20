@@ -9,22 +9,38 @@ export class LocalGroupStore {
     private static GROUPS_KEY = 'local_groups';
     private static DIRTY_KEY = 'dirty_groups';
 
+    // Serialize read-modify-write operations. Without this, two concurrent
+    // saveGroup calls (e.g. an optimistic mutation and an incoming snapshot)
+    // can read the same map and one overwrites the other.
+    private static writeChain: Promise<unknown> = Promise.resolve();
+
+    private static enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+        const result = this.writeChain.then(operation, operation);
+        this.writeChain = result.then(
+            () => undefined,
+            () => undefined
+        );
+        return result;
+    }
+
     /**
      * Save a group to local storage
      */
-    static async saveGroup(group: Group): Promise<void> {
-        try {
-            const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
-            const groups: Record<string, Group> = groupsJson ? JSON.parse(groupsJson) : {};
+    static saveGroup(group: Group): Promise<void> {
+        return this.enqueueWrite(async () => {
+            try {
+                const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
+                const groups: Record<string, Group> = groupsJson ? JSON.parse(groupsJson) : {};
 
-            groups[group.id] = group;
+                groups[group.id] = group;
 
-            await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
-            console.log(`[LocalStore] Saved group ${group.id}`);
-        } catch (error) {
-            console.error('[LocalStore] Failed to save group:', error);
-            throw error;
-        }
+                await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
+                console.log(`[LocalStore] Saved group ${group.id}`);
+            } catch (error) {
+                console.error('[LocalStore] Failed to save group:', error);
+                throw error;
+            }
+        });
     }
 
     /**
@@ -59,35 +75,43 @@ export class LocalGroupStore {
     /**
      * Mark a group as dirty (needs syncing)
      */
-    static async markDirty(groupId: string): Promise<void> {
-        try {
-            const dirtyJson = await AsyncStorage.getItem(this.DIRTY_KEY);
-            const dirtySet: string[] = dirtyJson ? JSON.parse(dirtyJson) : [];
+    static markDirty(groupId: string): Promise<void> {
+        return this.enqueueWrite(async () => {
+            try {
+                const dirtyJson = await AsyncStorage.getItem(this.DIRTY_KEY);
+                const dirtySet: string[] = dirtyJson ? JSON.parse(dirtyJson) : [];
 
-            if (!dirtySet.includes(groupId)) {
-                dirtySet.push(groupId);
-                await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(dirtySet));
-                console.log(`[LocalStore] Marked group ${groupId} as dirty`);
+                if (!dirtySet.includes(groupId)) {
+                    dirtySet.push(groupId);
+                    await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(dirtySet));
+                    console.log(`[LocalStore] Marked group ${groupId} as dirty`);
+                }
+            } catch (error) {
+                console.error('[LocalStore] Failed to mark dirty:', error);
             }
-        } catch (error) {
-            console.error('[LocalStore] Failed to mark dirty:', error);
-        }
+        });
     }
 
     /**
      * Clear dirty flag for a group
      */
-    static async clearDirty(groupId: string): Promise<void> {
-        try {
-            const dirtyJson = await AsyncStorage.getItem(this.DIRTY_KEY);
-            const dirtySet: string[] = dirtyJson ? JSON.parse(dirtyJson) : [];
+    static clearDirty(groupId: string): Promise<void> {
+        return this.enqueueWrite(async () => {
+            try {
+                await this.writeDirtyWithoutLock(groupId);
+            } catch (error) {
+                console.error('[LocalStore] Failed to clear dirty:', error);
+            }
+        });
+    }
 
-            const filtered = dirtySet.filter(id => id !== groupId);
-            await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(filtered));
-            console.log(`[LocalStore] Cleared dirty flag for group ${groupId}`);
-        } catch (error) {
-            console.error('[LocalStore] Failed to clear dirty:', error);
-        }
+    private static async writeDirtyWithoutLock(groupId: string): Promise<void> {
+        const dirtyJson = await AsyncStorage.getItem(this.DIRTY_KEY);
+        const dirtySet: string[] = dirtyJson ? JSON.parse(dirtyJson) : [];
+
+        const filtered = dirtySet.filter(id => id !== groupId);
+        await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(filtered));
+        console.log(`[LocalStore] Cleared dirty flag for group ${groupId}`);
     }
 
     /**
@@ -114,19 +138,21 @@ export class LocalGroupStore {
     /**
      * Delete a group from local storage
      */
-    static async deleteGroup(groupId: string): Promise<void> {
-        try {
-            const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
-            if (!groupsJson) return;
+    static deleteGroup(groupId: string): Promise<void> {
+        return this.enqueueWrite(async () => {
+            try {
+                const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
+                if (groupsJson) {
+                    const groups: Record<string, Group> = JSON.parse(groupsJson);
+                    delete groups[groupId];
+                    await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
+                }
 
-            const groups: Record<string, Group> = JSON.parse(groupsJson);
-            delete groups[groupId];
-
-            await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
-            await this.clearDirty(groupId);
-            console.log(`[LocalStore] Deleted group ${groupId}`);
-        } catch (error) {
-            console.error('[LocalStore] Failed to delete group:', error);
-        }
+                await this.writeDirtyWithoutLock(groupId);
+                console.log(`[LocalStore] Deleted group ${groupId}`);
+            } catch (error) {
+                console.error('[LocalStore] Failed to delete group:', error);
+            }
+        });
     }
 }
