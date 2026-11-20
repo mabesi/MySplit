@@ -12,6 +12,7 @@ import { ScreenWrapper } from '../../components/ScreenWrapper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSyncStatus } from '../../hooks/useSyncStatus';
 import { SyncIndicator } from '../../components/SyncIndicator';
+import { formatAmount, parseAmount } from '../../utils/number';
 
 // Settlements are stored as expenses using the translated title, including legacy values.
 const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
@@ -197,11 +198,9 @@ export default function GroupDetails() {
             return;
         }
 
-        // Normalize decimal separator: replace comma with dot
-        const normalizedAmount = expenseAmount.replace(',', '.');
-        const parsedAmount = parseFloat(normalizedAmount);
+        const parsedAmount = parseAmount(expenseAmount);
 
-        if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        if (parsedAmount === null || parsedAmount <= 0) {
             alert(i18n.t('invalidAmount'));
             return;
         }
@@ -248,7 +247,7 @@ export default function GroupDetails() {
 
         Alert.alert(
             i18n.t('settleUp'),
-            i18n.t('confirmSettle', { amount: amount.toFixed(2), from: fromName, to: toName }),
+            i18n.t('confirmSettle', { amount: formatAmount(amount, i18n.locale), from: fromName, to: toName }),
             [
                 { text: i18n.t('cancel'), style: "cancel" },
                 {
@@ -315,7 +314,7 @@ export default function GroupDetails() {
                 <View style={styles.totalContainer}>
                     <Text style={styles.statLabel}>{i18n.t('totalExpenses')}</Text>
                     <Text style={styles.statValue}>
-                        ${currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + e.amount, 0).toFixed(2)}
+                        ${formatAmount(currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + e.amount, 0), i18n.locale)}
                     </Text>
                 </View>
             </View>
@@ -365,7 +364,7 @@ export default function GroupDetails() {
                                     </View>
                                     <View style={styles.expenseRight}>
                                         <Text style={[styles.expenseAmount, settlement && styles.settlementAmount]}>
-                                            ${item.amount.toFixed(2)}
+                                            ${formatAmount(item.amount, i18n.locale)}
                                         </Text>
                                         <Text style={styles.expenseDate}>
                                             {new Date(item.date || item.createdAt).toLocaleDateString()}
@@ -406,7 +405,7 @@ export default function GroupDetails() {
                                 <View key={b.memberId} style={styles.balanceItem}>
                                     <Text style={styles.memberName}>{b.memberName}</Text>
                                     <Text style={[styles.balanceAmount, b.balance >= 0 ? styles.positive : styles.negative]}>
-                                        ${Math.abs(b.balance).toFixed(2)}
+                                        ${formatAmount(Math.abs(b.balance), i18n.locale)}
                                     </Text>
                                 </View>
                             ))
@@ -425,7 +424,7 @@ export default function GroupDetails() {
                                         <Text style={styles.transactionText}>
                                             <Text style={{ fontWeight: 'bold', color: '#F8FAFC' }}>{t.from}</Text> {i18n.t('pays')} <Text style={{ fontWeight: 'bold', color: '#F8FAFC' }}>{t.to}</Text>
                                         </Text>
-                                        <Text style={styles.transactionAmount}>${t.amount.toFixed(2)}</Text>
+                                        <Text style={styles.transactionAmount}>${formatAmount(t.amount, i18n.locale)}</Text>
                                     </View>
                                     {isActiveMember && (
                                         <TouchableOpacity
@@ -502,14 +501,9 @@ export default function GroupDetails() {
                             keyboardType="decimal-pad"
                             value={expenseAmount}
                             onChangeText={(text) => {
-                                // Normalize: replace comma with dot, allow only digits and one dot
-                                const normalized = text.replace(',', '.');
-                                // Prevent multiple dots
-                                const parts = normalized.split('.');
-                                const sanitized = parts.length > 2
-                                    ? parts[0] + '.' + parts.slice(1).join('')
-                                    : normalized;
-                                setExpenseAmount(sanitized);
+                                // Keep digits and both separators; parseAmount
+                                // validates the final value on submit.
+                                setExpenseAmount(text.replace(/[^0-9.,]/g, ''));
                             }}
                         />
 
