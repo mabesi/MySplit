@@ -99,8 +99,11 @@ export class FirebaseService implements StorageService {
 
         const newExpense: Expense = {
             ...expenseData,
-            id: 'id' in expenseData ? (expenseData as any).id : generateId(),
-            createdAt: Date.now()
+            id: 'id' in expenseData ? (expenseData as Expense).id : generateId(),
+            // Preserve createdAt when the caller already built the expense.
+            // This keeps the object identical across retries so arrayUnion
+            // deduplicates it instead of creating a duplicate.
+            createdAt: 'createdAt' in expenseData ? (expenseData as Expense).createdAt : Date.now()
         };
 
         await updateDoc(groupRef, {

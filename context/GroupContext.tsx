@@ -229,30 +229,46 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                                 { id: owner.id, name: owner.name, email: owner.email },
                                 localGroup.id
                             );
+
+                            // Members/expenses created locally before the first
+                            // sync must be uploaded too, otherwise they are
+                            // lost when the server snapshot replaces the local
+                            // copy after the dirty flag is cleared. The owner
+                            // is already part of createGroup, so skip it.
+                            for (const member of localGroup.members) {
+                                if (member.id !== owner.id) {
+                                    await storageService.addMember(groupId, member);
+                                }
+                            }
+
+                            for (const expense of localGroup.expenses) {
+                                await storageService.addExpense(groupId, expense);
+                            }
                         }
                     } else {
-                        // Group exists, update it
-                        console.log(`[Sync] Updating existing group ${groupId} on server`);
+                        // Group exists on the server. Only merge local additions;
+                        // never delete server data based on the local snapshot.
+                        // The local copy can be stale (another member may have
+                        // added members/expenses while this device was offline),
+                        // so "missing locally" does not mean "deleted".
+                        // Explicit deletions are sent directly by
+                        // removeMember/deleteExpense and must stay the only
+                        // source of delete operations.
+                        console.log(`[Sync] Merging local additions into group ${groupId}`);
 
-                        // 1. Update/Add members
+                        // 1. Add members that exist only locally. Status changes
+                        // are explicit operations (join/approve/reject) and are
+                        // not replayed here.
                         for (const localMember of localGroup.members) {
                             const serverMember = serverGroup.members.find(m => m.id === localMember.id);
                             if (!serverMember) {
                                 await storageService.addMember(groupId, localMember);
-                            } else if (serverMember.status !== localMember.status && localMember.status) {
-                                await storageService.updateMemberStatus(groupId, localMember.id, localMember.status);
                             }
                         }
 
-                        // 2. Remove members deleted locally
-                        for (const serverMember of serverGroup.members) {
-                            const stillExistsLocally = localGroup.members.some(m => m.id === serverMember.id);
-                            if (!stillExistsLocally) {
-                                await storageService.removeMember(groupId, serverMember.id);
-                            }
-                        }
-
-                        // 3. Update/Add expenses
+                        // 2. Add expenses that exist only locally. addExpense
+                        // preserves the local id/createdAt so arrayUnion is
+                        // idempotent if the write was already queued by Firestore.
                         for (const expense of localGroup.expenses) {
                             const existsOnServer = serverGroup.expenses.some(e => e.id === expense.id);
                             if (!existsOnServer) {
@@ -260,15 +276,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                             }
                         }
 
-                        // 4. Remove expenses deleted locally
-                        for (const serverExpense of serverGroup.expenses) {
-                            const stillExistsLocally = localGroup.expenses.some(e => e.id === serverExpense.id);
-                            if (!stillExistsLocally) {
-                                await storageService.deleteExpense(groupId, serverExpense.id);
-                            }
-                        }
-
-                        // 5. Update group fields (name, imageUrl, etc.)
+                        // 3. Update group fields (name, imageUrl, etc.)
                         const updates: Partial<Group> = {};
                         if (localGroup.name !== serverGroup.name) updates.name = localGroup.name;
                         if (localGroup.imageUrl !== serverGroup.imageUrl) updates.imageUrl = localGroup.imageUrl;
