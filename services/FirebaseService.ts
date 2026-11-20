@@ -64,10 +64,16 @@ export class FirebaseService implements StorageService {
 
         if (docSnap.exists()) {
             return docSnap.data() as Group;
-        } else {
-            console.warn(`⚠️ Group ${groupId} not found`);
-            return null;
         }
+
+        // A cached "does not exist" is not proof that the group was deleted.
+        // Throwing lets callers keep the local copy instead of removing it.
+        if (docSnap.metadata.fromCache) {
+            throw new Error(`Group ${groupId} is not available from cache`);
+        }
+
+        console.warn(`⚠️ Group ${groupId} not found`);
+        return null;
     }
 
     subscribeToGroup(groupId: string, callback: (group: Group | null) => void): () => void {
@@ -86,12 +92,14 @@ export class FirebaseService implements StorageService {
 
                 if (snapshot.exists()) {
                     callback(snapshot.data() as Group);
-                } else {
-                    // Document does NOT exist in Firestore (deleted or not found)
-                    if (!snapshot.metadata.hasPendingWrites) {
-                        console.warn(`⚠️ Group ${groupId} does not exist in Firestore (deleted or not found)`);
-                        callback(null);
-                    }
+                } else if (
+                    !snapshot.metadata.fromCache &&
+                    !snapshot.metadata.hasPendingWrites
+                ) {
+                    // Only a server-confirmed deletion removes the local copy.
+                    // A cache miss while offline must not hide the group.
+                    console.warn(`⚠️ Group ${groupId} was deleted on the server`);
+                    callback(null);
                 }
             },
             (error) => {
