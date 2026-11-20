@@ -159,6 +159,22 @@ export default function HomeScreen() {
                     setJoinId('');
                     setUserName('');
                     router.push(`/group/${joinId}`);
+                } else if (result.isActive === false) {
+                    Alert.alert(
+                        i18n.t('alreadyMember') || 'Already a member',
+                        i18n.t('awaitingApproval') || 'Your request is awaiting approval by the group creator.',
+                        [
+                            {
+                                text: i18n.t('openGroup') || 'Open Group',
+                                onPress: () => {
+                                    setShowJoinModal(false);
+                                    setJoinId('');
+                                    setUserName('');
+                                    router.push(`/group/${joinId}`);
+                                }
+                            }
+                        ]
+                    );
                 } else {
                     Alert.alert(
                         i18n.t('alreadyMember') || 'Already a member',

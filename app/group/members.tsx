@@ -63,6 +63,9 @@ export default function MembersScreen() {
     const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
     const pendingMembers = currentGroup.members.filter(m => m.status === 'pending');
     const isOwner = currentGroup.ownerId === userId;
+    const isActiveMember = Array.isArray(currentGroup.activeMemberIds)
+        ? currentGroup.activeMemberIds.includes(userId)
+        : activeMembers.some(m => m.id === userId);
 
     return (
         <ScreenWrapper>
@@ -131,9 +134,11 @@ export default function MembersScreen() {
                 </View>
             </View>
 
-            <TouchableOpacity style={styles.fab} onPress={() => setShowAddMember(true)}>
-                <Ionicons name="person-add" size={24} color="white" />
-            </TouchableOpacity>
+            {isActiveMember && (
+                <TouchableOpacity style={styles.fab} onPress={() => setShowAddMember(true)}>
+                    <Ionicons name="person-add" size={24} color="white" />
+                </TouchableOpacity>
+            )}
 
             {/* Add Member Modal */}
             <Modal visible={showAddMember} animationType="fade" transparent>

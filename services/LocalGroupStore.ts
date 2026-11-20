@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Group } from '../types';
+import { withMemberIds } from '../utils/memberLogic';
 
 /**
  * LocalGroupStore - Handles atomic local persistence of groups
@@ -32,7 +33,7 @@ export class LocalGroupStore {
                 const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
                 const groups: Record<string, Group> = groupsJson ? JSON.parse(groupsJson) : {};
 
-                groups[group.id] = group;
+                groups[group.id] = withMemberIds(group);
 
                 await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
                 console.log(`[LocalStore] Saved group ${group.id}`);
@@ -52,7 +53,8 @@ export class LocalGroupStore {
             if (!groupsJson) return null;
 
             const groups: Record<string, Group> = JSON.parse(groupsJson);
-            return groups[groupId] || null;
+            const group = groups[groupId];
+            return group ? withMemberIds(group) : null;
         } catch (error) {
             console.error('[LocalStore] Failed to get group:', error);
             return null;
@@ -65,7 +67,13 @@ export class LocalGroupStore {
     static async getAllGroups(): Promise<Record<string, Group>> {
         try {
             const groupsJson = await AsyncStorage.getItem(this.GROUPS_KEY);
-            return groupsJson ? JSON.parse(groupsJson) : {};
+            if (!groupsJson) return {};
+            const groups: Record<string, Group> = JSON.parse(groupsJson);
+            const normalized: Record<string, Group> = {};
+            Object.keys(groups).forEach(id => {
+                normalized[id] = withMemberIds(groups[id]);
+            });
+            return normalized;
         } catch (error) {
             console.error('[LocalStore] Failed to get all groups:', error);
             return {};

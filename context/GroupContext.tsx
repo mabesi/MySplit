@@ -12,8 +12,12 @@ import { OperationProcessor } from '../services/OperationProcessor';
 import {
     applyMemberApproval,
     applyMemberRemoval,
+    deriveMemberIds,
     findNameConflict,
-    prepareMemberApproval
+    normalizeGroupMemberIds,
+    prepareMemberApproval,
+    sameStringArray,
+    withMemberIds
 } from '../utils/memberLogic';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore
@@ -34,7 +38,7 @@ interface GroupContextType {
     isLoading: boolean;
     createGroup: (name: string, userName: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
-    joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string }>;
+    joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string; isActive?: boolean }>;
     addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number) => Promise<void>;
     addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
@@ -158,7 +162,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     const serverGroup = await storageService.getGroup(gId);
                     if (serverGroup) {
                         validGroupIds.push(gId);
-                        await LocalGroupStore.saveGroup(serverGroup);
+                        await LocalGroupStore.saveGroup(normalizeGroupMemberIds(serverGroup));
                     } else {
                         // The group was deleted on the server!
                         console.log(`[Sync] Group ${gId} deleted on server, removing locally.`);
@@ -245,6 +249,32 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         void processQueue();
     }, [processQueue]);
+
+    // Old groups do not have memberIds/activeMemberIds. Only the owner can
+    // backfill them, because the rules cannot verify the membership of a
+    // non-owner without those arrays.
+    const migratedGroups = useRef<Set<string>>(new Set());
+    const ensureMemberIdsMigrated = useCallback((group: Group) => {
+        if (!userId || group.ownerId !== userId) return;
+
+        const derived = deriveMemberIds(group.members);
+        if (
+            sameStringArray(group.memberIds, derived.memberIds) &&
+            sameStringArray(group.activeMemberIds, derived.activeMemberIds)
+        ) {
+            return;
+        }
+
+        if (migratedGroups.current.has(group.id)) return;
+
+        migratedGroups.current.add(group.id);
+        void enqueueOperation({
+            id: `member-ids-${group.id}`,
+            groupId: group.id,
+            type: 'updateGroup',
+            payload: derived
+        });
+    }, [userId, enqueueOperation]);
 
     useEffect(() => {
         if (!userId) return;
@@ -357,7 +387,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     name: userName,
                     status: 'active'
                 }],
-                expenses: []
+                expenses: [],
+                memberIds: [userId],
+                activeMemberIds: [userId]
             };
 
             // Save locally first. Mark pending before the write so a snapshot
@@ -401,10 +433,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             const serverGroup = await storageService.getGroup(groupId);
             if (serverGroup) {
+                ensureMemberIdsMigrated(serverGroup);
+                const normalized = normalizeGroupMemberIds(serverGroup);
                 // Save to local storage for future offline access
-                await LocalGroupStore.saveGroup(serverGroup);
+                await LocalGroupStore.saveGroup(normalized);
                 console.log(`[GetGroup] Fetched group ${groupId} from server`);
-                return serverGroup;
+                return normalized;
             }
         } catch (error) {
             console.error(`[GetGroup] Failed to fetch group ${groupId}:`, error);
@@ -442,7 +476,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 return {
                     success: false,
                     status: 'already_member' as const,
-                    memberName: existingMember.name
+                    memberName: existingMember.name,
+                    isActive: (existingMember.status ?? 'active') === 'active'
                 };
             }
 
@@ -463,11 +498,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
                 const pendingMember: Member = { id: userId, name: trimmedName, status: 'pending' };
 
-                group = {
+                group = withMemberIds({
                     ...group,
                     members: [...group.members, pendingMember],
                     updatedAt: Date.now()
-                };
+                });
 
                 pendingGroups.current.add(groupId);
                 await LocalGroupStore.saveGroup(group);
@@ -542,11 +577,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 }
 
                 // Group exists on server
+                ensureMemberIdsMigrated(serverGroup);
                 const hasPendingChanges =
                     pendingGroups.current.has(groupId) ||
                     await OperationQueue.hasPendingForGroup(groupId) ||
                     await LocalGroupStore.isDirty(groupId);
-                let groupToDispatch = serverGroup;
+                let groupToDispatch = normalizeGroupMemberIds(serverGroup);
 
                 if (hasPendingChanges) {
                     console.log(`[Subscribe] Group ${groupId} has pending operations, keeping local changes`);
@@ -556,7 +592,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     }
                 } else {
                     console.log(`[Subscribe] Updating group ${groupId} from server`);
-                    await LocalGroupStore.saveGroup(serverGroup);
+                    await LocalGroupStore.saveGroup(groupToDispatch);
                 }
 
                 // Always update currentGroup if this is the active group
@@ -647,11 +683,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             virtual: true
         };
 
-        const updatedGroup = {
+        const updatedGroup = withMemberIds({
             ...currentGroup,
             members: [...currentGroup.members, newMember],
             updatedAt: Date.now()
-        };
+        });
 
         // Save locally and enqueue the server write
         pendingGroups.current.add(currentGroup.id);

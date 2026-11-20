@@ -30,6 +30,10 @@ export interface Group {
     version: number; // For optimistic concurrency or migration
     members: Member[];
     expenses: Expense[];
+    // Derived from `members` and used by Firestore Rules to check membership
+    // cheaply (rules cannot iterate over an array of member objects).
+    memberIds: string[];
+    activeMemberIds: string[];
 }
 
 export type GroupUpdate = Partial<Omit<Group, 'id' | 'createdAt' | 'version'>>;

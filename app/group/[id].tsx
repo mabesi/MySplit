@@ -40,6 +40,14 @@ export default function GroupDetails() {
     const [paidBy, setPaidBy] = useState('');
     const [splitAmong, setSplitAmong] = useState<string[]>([]);
 
+    // Pending members can view the group but cannot add expenses/members; the
+    // Firestore rules enforce the same rule.
+    const isActiveMember = currentGroup
+        ? (Array.isArray(currentGroup.activeMemberIds)
+            ? currentGroup.activeMemberIds.includes(userId)
+            : currentGroup.members.some(m => m.id === userId && (m.status ?? 'active') === 'active'))
+        : false;
+
     useEffect(() => {
         if (!id) return;
 
@@ -419,12 +427,14 @@ export default function GroupDetails() {
                                         </Text>
                                         <Text style={styles.transactionAmount}>${t.amount.toFixed(2)}</Text>
                                     </View>
-                                    <TouchableOpacity
-                                        style={styles.settleButton}
-                                        onPress={() => handleSettleUp(t.from, t.to, t.amount)}
-                                    >
-                                        <Text style={styles.settleButtonText}>{i18n.t('settleUp')}</Text>
-                                    </TouchableOpacity>
+                                    {isActiveMember && (
+                                        <TouchableOpacity
+                                            style={styles.settleButton}
+                                            onPress={() => handleSettleUp(t.from, t.to, t.amount)}
+                                        >
+                                            <Text style={styles.settleButtonText}>{i18n.t('settleUp')}</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                             ))
                         )}
@@ -433,7 +443,8 @@ export default function GroupDetails() {
             </View>
 
             {/* ... (FABs) ... */}
-            {/* Expandable FAB */}
+            {/* Expandable FAB (active members only) */}
+            {isActiveMember && (
             <View style={styles.fabContainer}>
                 {isFabExpanded && (
                     <>
@@ -470,6 +481,7 @@ export default function GroupDetails() {
                     <Ionicons name={isFabExpanded ? "close" : "add"} size={30} color="white" />
                 </TouchableOpacity>
             </View>
+            )}
 
             {/* ... (Add Expense Modal) ... */}
             <Modal visible={showAddExpense} animationType="slide" transparent>

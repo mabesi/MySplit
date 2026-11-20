@@ -17,6 +17,45 @@ export type ApprovalPlan =
     | { ok: true; mergeMemberId?: string }
     | { ok: false; reason: 'name_taken' | 'name_reserved' | 'not_found' };
 
+/**
+ * Derives the id arrays used by Firestore Rules. Rules cannot iterate over an
+ * array of member objects, so these arrays are maintained alongside `members`.
+ */
+export function deriveMemberIds(members: Member[]): {
+    memberIds: string[];
+    activeMemberIds: string[];
+} {
+    return {
+        memberIds: members.map(member => member.id),
+        activeMemberIds: members
+            .filter(member => (member.status ?? 'active') === 'active')
+            .map(member => member.id)
+    };
+}
+
+/**
+ * Returns a copy of the group with both id arrays recomputed from `members`.
+ * Every mutation that changes members must go through this helper.
+ */
+export function withMemberIds(group: Group): Group {
+    const { memberIds, activeMemberIds } = deriveMemberIds(group.members);
+    return { ...group, memberIds, activeMemberIds };
+}
+
+/**
+ * Normalizes groups loaded from old local/server data where the arrays did not
+ * exist yet. The arrays are always derived from the members, never trusted from
+ * stale storage.
+ */
+export function normalizeGroupMemberIds(group: Group): Group {
+    return withMemberIds(group);
+}
+
+export function sameStringArray(a?: string[], b?: string[]): boolean {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((value, index) => value === b[index]);
+}
+
 export function normalizeName(name: string): string {
     // Case- and accent-insensitive so "João", "joão" and "Joao" are treated as
     // the same person when checking uniqueness or assuming a virtual member.
@@ -136,7 +175,7 @@ export function applyMemberMerge(group: Group, oldMemberId: string, newMemberId:
     });
 
     const members = group.members.filter(member => member.id !== oldMemberId);
-    return { ...group, members, expenses, updatedAt: Date.now() };
+    return withMemberIds({ ...group, members, expenses, updatedAt: Date.now() });
 }
 
 /**
@@ -164,7 +203,7 @@ export function applyMemberApproval(
             : member
     );
 
-    return { ...base, members, updatedAt: Date.now() };
+    return withMemberIds({ ...base, members, updatedAt: Date.now() });
 }
 
 /**
@@ -193,5 +232,5 @@ export function applyMemberRemoval(group: Group, memberId: string): Group {
         )
         .filter(expense => expense.splitAmong.length > 0);
 
-    return { ...group, members, expenses, updatedAt: Date.now() };
+    return withMemberIds({ ...group, members, expenses, updatedAt: Date.now() });
 }

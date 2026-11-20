@@ -4,10 +4,25 @@ import {
     applyMemberApproval,
     applyMemberMerge,
     applyMemberRemoval,
-    prepareMemberApproval
+    deriveMemberIds,
+    prepareMemberApproval,
+    withMemberIds
 } from '../utils/memberLogic';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
+
+function buildGroup(data: Omit<Group, 'memberIds' | 'activeMemberIds'>): Group {
+    const { memberIds, activeMemberIds } = deriveMemberIds(data.members);
+    return { ...data, memberIds, activeMemberIds };
+}
+
+function applyGroupUpdate(target: Group, source: Group): void {
+    target.members = source.members;
+    target.expenses = source.expenses;
+    target.memberIds = source.memberIds;
+    target.activeMemberIds = source.activeMemberIds;
+    target.updatedAt = source.updatedAt;
+}
 
 export class MockService implements StorageService {
     private groups: Map<string, Group> = new Map();
@@ -26,7 +41,7 @@ export class MockService implements StorageService {
         };
 
         // 1. Group: teste-plinio (Created by Plínio, has all members)
-        const groupPlinio: Group = {
+        const groupPlinio: Group = buildGroup({
             id: 'teste-plinio',
             name: 'Viagem Plínio',
             ownerId: members.plinio.id,
@@ -66,11 +81,11 @@ export class MockService implements StorageService {
                     createdBy: members.dime.id
                 }
             ]
-        };
+        });
         this.groups.set(groupPlinio.id, groupPlinio);
 
         // 2. Group: teste-manu (Created by Manu, Plínio NOT included)
-        const groupManu: Group = {
+        const groupManu: Group = buildGroup({
             id: 'teste-manu',
             name: 'Festa da Manu',
             ownerId: members.manu.id,
@@ -79,11 +94,11 @@ export class MockService implements StorageService {
             version: 1,
             members: [members.plinio, members.manu, members.dime, members.liza],
             expenses: []
-        };
+        });
         this.groups.set(groupManu.id, groupManu);
 
         // 3. Group: teste-dime (Created by Dime, Plínio NOT included)
-        const groupDime: Group = {
+        const groupDime: Group = buildGroup({
             id: 'teste-dime',
             name: 'Churras do Dime',
             ownerId: members.dime.id,
@@ -92,11 +107,11 @@ export class MockService implements StorageService {
             version: 1,
             members: [members.dime, members.manu, members.liza],
             expenses: []
-        };
+        });
         this.groups.set(groupDime.id, groupDime);
 
         // 4. Group: teste-liza (Created by Liza, Plínio NOT included)
-        const groupLiza: Group = {
+        const groupLiza: Group = buildGroup({
             id: 'teste-liza',
             name: 'Praia da Liza',
             ownerId: members.liza.id,
@@ -105,7 +120,7 @@ export class MockService implements StorageService {
             version: 1,
             members: [members.liza, members.manu, members.dime],
             expenses: []
-        };
+        });
         this.groups.set(groupLiza.id, groupLiza);
     }
 
@@ -122,7 +137,7 @@ export class MockService implements StorageService {
         const randomSuffix = Math.random().toString(36).substring(2, 6);
         const groupId = customId || `${slug}-${randomSuffix}`;
 
-        const newGroup: Group = {
+        const newGroup: Group = buildGroup({
             id: groupId,
             name,
             ownerId: creator.id,
@@ -136,7 +151,7 @@ export class MockService implements StorageService {
                 status: 'active'
             }],
             expenses: []
-        };
+        });
 
         this.groups.set(groupId, newGroup);
         return newGroup;
@@ -195,8 +210,12 @@ export class MockService implements StorageService {
 
         // New member joins (default to pending if not specified)
         const newMember = { ...member, status: member.status || 'pending' };
-        group.members.push(newMember);
-        group.updatedAt = Date.now();
+        const updated = withMemberIds({
+            ...group,
+            members: [...group.members, newMember],
+            updatedAt: Date.now()
+        });
+        applyGroupUpdate(group, updated);
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }
@@ -208,9 +227,7 @@ export class MockService implements StorageService {
         const updated = applyMemberRemoval(group, memberId);
         if (updated === group) return;
 
-        group.members = updated.members;
-        group.expenses = updated.expenses;
-        group.updatedAt = updated.updatedAt;
+        applyGroupUpdate(group, updated);
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }
@@ -220,10 +237,14 @@ export class MockService implements StorageService {
         if (!group) throw new Error("Group not found");
 
         if (status === 'pending') {
-            group.members = group.members.map(m =>
-                m.id === memberId ? { ...m, status } : m
-            );
-            group.updatedAt = Date.now();
+            const updated = withMemberIds({
+                ...group,
+                members: group.members.map(m =>
+                    m.id === memberId ? { ...m, status } : m
+                ),
+                updatedAt: Date.now()
+            });
+            applyGroupUpdate(group, updated);
             this.groups.set(groupId, group);
             this.notifySubscribers(groupId);
             return;
@@ -235,9 +256,7 @@ export class MockService implements StorageService {
         }
 
         const updated = applyMemberApproval(group, memberId, plan.mergeMemberId);
-        group.members = updated.members;
-        group.expenses = updated.expenses;
-        group.updatedAt = updated.updatedAt;
+        applyGroupUpdate(group, updated);
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }
@@ -249,9 +268,7 @@ export class MockService implements StorageService {
         const updated = applyMemberMerge(group, oldMemberId, newMemberId);
         if (updated === group) return;
 
-        group.members = updated.members;
-        group.expenses = updated.expenses;
-        group.updatedAt = updated.updatedAt;
+        applyGroupUpdate(group, updated);
         this.groups.set(groupId, group);
         this.notifySubscribers(groupId);
     }

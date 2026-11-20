@@ -2,25 +2,18 @@ rules_version = '2';
 
 // Firestore rules for MySplit.
 //
-// IMPORTANT LIMITATION: Firestore Rules has no map/filter/lambda over lists and
-// enforces a budget of 1000 expressions per evaluation. Checking whether an
-// arbitrary uid is inside an array of member objects would require iterating
-// over every position, which quickly exceeds that budget. Therefore:
+// Membership is checked against two string arrays stored on the group:
+//   memberIds        - every member (active or pending)
+//   activeMemberIds  - only active members
+// Both are derived from `members` by the app. The owner is always members[0].
 //
-// - The owner is always members[0]; owner-only operations are verified by
-//   comparing ownerId with request.auth.uid (cheap and exact).
-// - Any authenticated user who knows the exact group ID can append an expense
-//   with createdBy == their uid. The app only exposes this to active members;
-//   the rules cannot verify the active membership without an extra
-//   memberIds/activeMemberIds array (recommended future change).
-// - Only the owner can add/remove/approve members. A non-member can append
-//   themselves as pending and wait for approval.
-// - The owner's name is reserved. Duplicate names against other members are
-//   blocked by the client and by the server approval transaction.
+// Existing groups created before these arrays existed must be opened once by
+// the owner; the app enqueues a backfill update when it sees a group without
+// them. Non-owner writes to those groups stay blocked until the owner migrates.
 //
-// If strict membership is required in the rules, add "memberIds" and
-// "activeMemberIds" string arrays to the group document and use:
-//   uid() in data.memberIds / uid() in data.activeMemberIds
+// Rules cannot verify that every entry of the arrays corresponds to a member
+// object (no list iteration), but they enforce sizes, uniqueness, that every
+// active id is also a member id, and that the owner is in both arrays.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -41,12 +34,28 @@ service cloud.firestore {
       return signedIn() && data.ownerId == uid();
     }
 
+    function memberIdsOf(data) {
+      return data.get('memberIds', []);
+    }
+
+    function activeMemberIdsOf(data) {
+      return data.get('activeMemberIds', []);
+    }
+
+    function isMember(data) {
+      return signedIn() && uid() in memberIdsOf(data);
+    }
+
+    function isActiveMember(data) {
+      return signedIn() && uid() in activeMemberIdsOf(data);
+    }
+
     function normalizedName(name) {
       return name.trim().lower();
     }
 
     // The owner entry is fixed at index 0 (enforced by create and
-    // canManageMembers). This keeps the owner-name check cheap.
+    // canManageMembers).
     function isOwnerName(data, candidate) {
       return data.members.size() > 0 &&
         data.members[0].name is string &&
@@ -75,9 +84,22 @@ service cloud.firestore {
         e.amount > 0 && e.amount < 1000000000 &&
         e.paidBy is string && e.paidBy.size() > 0 &&
         e.splitAmong is list &&
-        e.splitAmong.size() > 0 && e.splitAmong.size() <= 50 &&
+        e.splitAmong.size() > 0 && e.splitAmong.size() <= 100 &&
         e.splitAmong.toSet().size() == e.splitAmong.size() &&
         (e.date is int || e.date is float);
+    }
+
+    function validIdArrays(data) {
+      let ids = data.get('memberIds', []);
+      let active = data.get('activeMemberIds', []);
+      return ids is list &&
+        active is list &&
+        ids.size() == data.members.size() &&
+        ids.toSet().size() == ids.size() &&
+        active.toSet().size() == active.size() &&
+        active.hasOnly(ids) &&
+        data.ownerId in ids &&
+        data.ownerId in active;
     }
 
     // ---------------------------------------------------------------------
@@ -120,6 +142,15 @@ service cloud.firestore {
       return request.resource.data.expenses == oldData.expenses;
     }
 
+    function hasSameMemberIds(oldData) {
+      return request.resource.data.get('memberIds', []) == oldData.get('memberIds', []);
+    }
+
+    function hasSameActiveMemberIds(oldData) {
+      return request.resource.data.get('activeMemberIds', []) ==
+        oldData.get('activeMemberIds', []);
+    }
+
     function validUpdatedAt() {
       return request.resource.data.updatedAt is int ||
         request.resource.data.updatedAt is float;
@@ -138,36 +169,93 @@ service cloud.firestore {
     // Update branches
     // ---------------------------------------------------------------------
 
-    // A non-member appends themselves as a pending request.
+    // A non-member appends themselves as a pending request. The memberIds
+    // array becomes exactly the old list plus the caller; activeMemberIds is
+    // unchanged (they are not active yet).
     function canSelfJoin(oldData, added, removed) {
-      return added.size() == 1 &&
+      let oldIds = memberIdsOf(oldData);
+      let newIds = request.resource.data.get('memberIds', []);
+      return !isMember(oldData) &&
+        added.size() == 1 &&
         removed.size() == 0 &&
         request.resource.data.members is list &&
         request.resource.data.members.size() == oldData.members.size() + 1 &&
-        request.resource.data.members.size() <= 50 &&
+        request.resource.data.members.size() <= 100 &&
         validMember(added[0]) &&
         added[0].id == uid() &&
         added[0].get('status', 'active') == 'pending' &&
         added[0].get('virtual', false) == false &&
-        !isOwnerName(oldData, added[0].name);
+        !isOwnerName(oldData, added[0].name) &&
+        newIds is list &&
+        newIds.toSet().size() == newIds.size() &&
+        newIds.size() == oldIds.size() + 1 &&
+        uid() in newIds &&
+        oldIds.hasOnly(newIds) &&
+        newIds.size() == request.resource.data.members.size() &&
+        request.resource.data.get('activeMemberIds', []) == activeMemberIdsOf(oldData);
     }
 
-    // Any authenticated user with the group ID can append an expense created
-    // by themselves. Membership cannot be checked efficiently in rules.
+    // An active member appends a virtual member or a pending request. The id
+    // arrays must change by exactly that member.
+    function canAppendMember(oldData, added, removed) {
+      let oldIds = memberIdsOf(oldData);
+      let oldActive = activeMemberIdsOf(oldData);
+      let newIds = request.resource.data.get('memberIds', []);
+      let newActive = request.resource.data.get('activeMemberIds', []);
+      let member = added.size() == 1 ? added[0] : null;
+      return isActiveMember(oldData) &&
+        added.size() == 1 &&
+        removed.size() == 0 &&
+        request.resource.data.members is list &&
+        request.resource.data.members.size() == oldData.members.size() + 1 &&
+        request.resource.data.members.size() <= 100 &&
+        validMember(member) &&
+        !(member.id in oldIds) &&
+        !isOwnerName(oldData, member.name) &&
+        newIds is list &&
+        newIds.toSet().size() == newIds.size() &&
+        newIds.size() == oldIds.size() + 1 &&
+        member.id in newIds &&
+        oldIds.hasOnly(newIds) &&
+        newIds.size() == request.resource.data.members.size() &&
+        (
+          (member.get('virtual', false) == true &&
+            member.get('status', 'active') == 'active' &&
+            newActive is list &&
+            newActive.toSet().size() == newActive.size() &&
+            newActive.size() == oldActive.size() + 1 &&
+            member.id in newActive &&
+            oldActive.hasOnly(newActive)) ||
+          (member.get('virtual', false) == false &&
+            member.get('status', 'active') == 'pending' &&
+            newActive == oldActive)
+        );
+    }
+
+    // An active member appends an expense created by themselves.
     function canAddExpense(oldData, added, removed) {
-      return added.size() == 1 &&
+      let activeIds = activeMemberIdsOf(oldData);
+      return isActiveMember(oldData) &&
+        hasSameMemberIds(oldData) &&
+        hasSameActiveMemberIds(oldData) &&
+        added.size() == 1 &&
         removed.size() == 0 &&
         request.resource.data.expenses is list &&
         request.resource.data.expenses.size() == oldData.expenses.size() + 1 &&
         validExpense(added[0]) &&
         added[0].keys().hasAll(['createdBy', 'createdAt']) &&
         added[0].createdBy == uid() &&
-        added[0].createdAt is int;
+        added[0].createdAt is int &&
+        added[0].paidBy in activeIds &&
+        added[0].splitAmong.hasOnly(activeIds);
     }
 
     // The creator of an expense or the owner removes exactly one expense.
     function canDeleteExpense(oldData, added, removed) {
-      return added.size() == 0 &&
+      return isActiveMember(oldData) &&
+        hasSameMemberIds(oldData) &&
+        hasSameActiveMemberIds(oldData) &&
+        added.size() == 0 &&
         removed.size() == 1 &&
         request.resource.data.expenses is list &&
         request.resource.data.expenses.size() == oldData.expenses.size() - 1 &&
@@ -175,22 +263,31 @@ service cloud.firestore {
     }
 
     // The owner restructures members/expenses (add, remove, reject, approve and
-    // merge). The owner entry is fixed at index 0 and can never be removed.
+    // merge), including the memberIds/activeMemberIds backfill. The owner entry
+    // is fixed at index 0 and can never be removed.
     function canManageMembers(oldData, added) {
-      return request.resource.data.members is list &&
+      return isOwner(oldData) &&
+        request.resource.data.members is list &&
         request.resource.data.members.size() > 0 &&
-        request.resource.data.members.size() <= 50 &&
+        request.resource.data.members.size() <= 100 &&
         request.resource.data.members[0] == oldData.members[0] &&
         request.resource.data.members[0].id == oldData.ownerId &&
         request.resource.data.members[0].get('status', 'active') == 'active' &&
         request.resource.data.expenses is list &&
         request.resource.data.expenses.size() <= 5000 &&
+        validIdArrays(request.resource.data) &&
         isNameUpdateAllowed(oldData, added);
     }
 
     // The owner changes only the group name/image.
     function canUpdateSummary(oldData) {
-      return request.resource.data.name is string &&
+      return isOwner(oldData) &&
+        hasSameMembers(oldData) &&
+        hasSameExpenses(oldData) &&
+        hasSameMemberIds(oldData) &&
+        hasSameActiveMemberIds(oldData) &&
+        sameMeta(oldData) &&
+        request.resource.data.name is string &&
         normalizedName(request.resource.data.name).size() > 0 &&
         request.resource.data.name.size() <= 200 &&
         (
@@ -199,11 +296,23 @@ service cloud.firestore {
             request.resource.data.imageUrl is string &&
             request.resource.data.imageUrl.size() <= 900000
           )
-        );
+        ) &&
+        validUpdatedAt();
     }
 
-    // Idempotent retries from the offline outbox (arrayUnion deduplicates the
-    // element, so only updatedAt changes on a replay).
+    // Idempotent retries from the offline outbox (the server transaction
+    // deduplicates the element, so only updatedAt changes on a replay).
+    function isNoOpRetry(oldData) {
+      return isMember(oldData) &&
+        sameMeta(oldData) &&
+        sameSummary(oldData) &&
+        hasSameMembers(oldData) &&
+        hasSameExpenses(oldData) &&
+        hasSameMemberIds(oldData) &&
+        hasSameActiveMemberIds(oldData) &&
+        validUpdatedAt();
+    }
+
     function canUpdate(oldData) {
       let addedM = addedMembers(oldData);
       let removedM = removedMembers(oldData);
@@ -221,9 +330,10 @@ service cloud.firestore {
           (membersSame && expensesSame && canUpdateSummary(oldData))
         )) ||
         (summarySame && canSelfJoin(oldData, addedM, removedM)) ||
+        (summarySame && canAppendMember(oldData, addedM, removedM)) ||
         (summarySame && membersSame && canAddExpense(oldData, addedE, removedE)) ||
         (summarySame && membersSame && canDeleteExpense(oldData, addedE, removedE)) ||
-        (summarySame && membersSame && expensesSame && signedIn())
+        (summarySame && membersSame && expensesSame && isNoOpRetry(oldData))
       );
     }
 
@@ -241,7 +351,7 @@ service cloud.firestore {
       allow create: if signedIn() &&
         request.resource.data.keys().hasOnly([
           'id', 'name', 'ownerId', 'createdAt', 'updatedAt', 'version',
-          'members', 'expenses'
+          'members', 'expenses', 'memberIds', 'activeMemberIds'
         ]) &&
         request.resource.data.id == groupId &&
         request.resource.data.ownerId == uid() &&
@@ -257,7 +367,9 @@ service cloud.firestore {
         request.resource.data.members[0].id == uid() &&
         request.resource.data.members[0].get('status', 'active') == 'active' &&
         request.resource.data.expenses is list &&
-        request.resource.data.expenses.size() == 0;
+        request.resource.data.expenses.size() == 0 &&
+        request.resource.data.memberIds == [uid()] &&
+        request.resource.data.activeMemberIds == [uid()];
 
       allow update: if canUpdate(resource.data);
 

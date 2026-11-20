@@ -4,8 +4,6 @@ import {
     setDoc,
     updateDoc,
     onSnapshot,
-    arrayUnion,
-    arrayRemove,
     deleteDoc,
     runTransaction
 } from 'firebase/firestore';
@@ -16,7 +14,9 @@ import {
     applyMemberApproval,
     applyMemberMerge,
     applyMemberRemoval,
-    prepareMemberApproval
+    deriveMemberIds,
+    prepareMemberApproval,
+    withMemberIds
 } from '../utils/memberLogic';
 
 
@@ -42,7 +42,9 @@ export class FirebaseService implements StorageService {
                 ...(creator.email ? { email: creator.email } : {}), // Only include email if defined
                 status: 'active'
             }],
-            expenses: []
+            expenses: [],
+            memberIds: [creatorId],
+            activeMemberIds: [creatorId]
         };
 
         await setDoc(doc(db, 'groups', groupId), newGroup);
@@ -107,14 +109,31 @@ export class FirebaseService implements StorageService {
             ...expenseData,
             id: 'id' in expenseData ? (expenseData as Expense).id : generateId(),
             // Preserve createdAt when the caller already built the expense.
-            // This keeps the object identical across retries so arrayUnion
-            // deduplicates it instead of creating a duplicate.
             createdAt: 'createdAt' in expenseData ? (expenseData as Expense).createdAt : Date.now()
         };
 
-        await updateDoc(groupRef, {
-            expenses: arrayUnion(newExpense),
-            updatedAt: Date.now()
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
+
+            const group = groupDoc.data() as Group;
+            if ((group.expenses || []).some(expense => expense.id === newExpense.id)) {
+                return;
+            }
+
+            // Backfill the id arrays for groups created before they existed.
+            const derived = deriveMemberIds(group.members);
+            const memberIds = Array.isArray(group.memberIds) ? group.memberIds : derived.memberIds;
+            const activeMemberIds = Array.isArray(group.activeMemberIds)
+                ? group.activeMemberIds
+                : derived.activeMemberIds;
+
+            transaction.update(groupRef, {
+                expenses: [...(group.expenses || []), newExpense],
+                memberIds,
+                activeMemberIds,
+                updatedAt: Date.now()
+            });
         });
     }
 
@@ -131,9 +150,24 @@ export class FirebaseService implements StorageService {
         if (memberData.avatarUrl) cleanMember.avatarUrl = memberData.avatarUrl;
         if (memberData.virtual) cleanMember.virtual = true;
 
-        await updateDoc(groupRef, {
-            members: arrayUnion(cleanMember),
-            updatedAt: Date.now()
+        // Use a transaction so retries are idempotent and old documents without
+        // the id arrays are backfilled from the full member list.
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
+
+            const group = groupDoc.data() as Group;
+            if (group.members.some(member => member.id === memberData.id)) return;
+
+            const members = [...group.members, cleanMember];
+            const { memberIds, activeMemberIds } = deriveMemberIds(members);
+
+            transaction.update(groupRef, {
+                members,
+                memberIds,
+                activeMemberIds,
+                updatedAt: Date.now()
+            });
         });
     }
 
@@ -152,6 +186,8 @@ export class FirebaseService implements StorageService {
             transaction.update(groupRef, {
                 members: updated.members,
                 expenses: updated.expenses,
+                memberIds: updated.memberIds,
+                activeMemberIds: updated.activeMemberIds,
                 updatedAt: updated.updatedAt
             });
         });
@@ -172,6 +208,8 @@ export class FirebaseService implements StorageService {
             transaction.update(groupRef, {
                 members: updated.members,
                 expenses: updated.expenses,
+                memberIds: updated.memberIds,
+                activeMemberIds: updated.activeMemberIds,
                 updatedAt: updated.updatedAt
             });
         });
@@ -190,10 +228,13 @@ export class FirebaseService implements StorageService {
                 const members = group.members.map(member =>
                     member.id === memberId ? { ...member, status } : member
                 );
+                const updated = withMemberIds({ ...group, members, updatedAt: Date.now() });
 
                 transaction.update(groupRef, {
-                    members,
-                    updatedAt: Date.now()
+                    members: updated.members,
+                    memberIds: updated.memberIds,
+                    activeMemberIds: updated.activeMemberIds,
+                    updatedAt: updated.updatedAt
                 });
                 return;
             }
@@ -214,6 +255,8 @@ export class FirebaseService implements StorageService {
             transaction.update(groupRef, {
                 members: updated.members,
                 expenses: updated.expenses,
+                memberIds: updated.memberIds,
+                activeMemberIds: updated.activeMemberIds,
                 updatedAt: updated.updatedAt
             });
         });
@@ -221,16 +264,23 @@ export class FirebaseService implements StorageService {
 
     async deleteExpense(groupId: string, expenseId: string): Promise<void> {
         const groupRef = doc(db, 'groups', groupId);
-        const groupDoc = await getDoc(groupRef);
 
-        if (!groupDoc.exists()) throw new Error("Group not found");
+        await runTransaction(db, async (transaction) => {
+            const groupDoc = await transaction.get(groupRef);
+            if (!groupDoc.exists()) throw new Error("Group not found");
 
-        const group = groupDoc.data() as Group;
-        const updatedExpenses = group.expenses.filter(e => e.id !== expenseId);
+            const group = groupDoc.data() as Group;
+            const derived = deriveMemberIds(group.members);
 
-        await updateDoc(groupRef, {
-            expenses: updatedExpenses,
-            updatedAt: Date.now()
+            // Backfill the id arrays for groups created before they existed.
+            transaction.update(groupRef, {
+                expenses: (group.expenses || []).filter(expense => expense.id !== expenseId),
+                memberIds: Array.isArray(group.memberIds) ? group.memberIds : derived.memberIds,
+                activeMemberIds: Array.isArray(group.activeMemberIds)
+                    ? group.activeMemberIds
+                    : derived.activeMemberIds,
+                updatedAt: Date.now()
+            });
         });
     }
 
