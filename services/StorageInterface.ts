@@ -15,6 +15,12 @@ export interface StorageService {
     getGroup(groupId: string): Promise<Group | null>;
 
     /**
+     * Discovers groups the user owns or belongs to. Used to recover groups that
+     * are missing from the local myGroups list.
+     */
+    getGroupsForUser(userId: string): Promise<Group[]>;
+
+    /**
      * Subscribes to real-time updates for a group.
      * Calls onUpdate with the group data, or null if the group does not exist / was deleted.
      * Returns an unsubscribe function.

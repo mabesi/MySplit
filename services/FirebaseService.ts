@@ -1,11 +1,16 @@
 import {
     doc,
     getDoc,
+    getDocs,
     setDoc,
     updateDoc,
     onSnapshot,
     deleteDoc,
-    runTransaction
+    runTransaction,
+    collection,
+    query,
+    where,
+    limit
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { StorageService } from './StorageInterface';
@@ -74,6 +79,26 @@ export class FirebaseService implements StorageService {
 
         console.warn(`⚠️ Group ${groupId} not found`);
         return null;
+    }
+
+    async getGroupsForUser(userId: string): Promise<Group[]> {
+        const groupsRef = collection(db, 'groups');
+        const [owned, member] = await Promise.all([
+            getDocs(query(groupsRef, where('ownerId', '==', userId), limit(100))),
+            getDocs(query(groupsRef, where('memberIds', 'array-contains', userId), limit(100)))
+        ]);
+
+        const byId = new Map<string, Group>();
+        owned.forEach(docSnap => {
+            byId.set(docSnap.id, docSnap.data() as Group);
+        });
+        member.forEach(docSnap => {
+            if (!byId.has(docSnap.id)) {
+                byId.set(docSnap.id, docSnap.data() as Group);
+            }
+        });
+
+        return Array.from(byId.values());
     }
 
     subscribeToGroup(groupId: string, callback: (group: Group | null) => void): () => void {

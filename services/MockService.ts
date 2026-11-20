@@ -161,6 +161,13 @@ export class MockService implements StorageService {
         return this.groups.get(groupId) || null;
     }
 
+    async getGroupsForUser(userId: string): Promise<Group[]> {
+        return Array.from(this.groups.values()).filter(group =>
+            group.ownerId === userId ||
+            (group.memberIds || group.members.map(member => member.id)).includes(userId)
+        );
+    }
+
     subscribeToGroup(groupId: string, onUpdate: (group: Group | null) => void): () => void {
         // Initial call
         const group = this.groups.get(groupId);

@@ -343,9 +343,15 @@ service cloud.firestore {
 
     match /groups/{groupId} {
       // Reading requires knowing the exact document ID. Collection listing is
-      // denied so groups cannot be enumerated.
+      // only allowed for the two discovery queries below, which are always
+      // constrained to the caller's own groups.
       allow get: if signedIn();
-      allow list: if false;
+      allow list: if signedIn() &&
+        request.query.limit <= 100 &&
+        (
+          resource.data.ownerId == uid() ||
+          uid() in resource.data.get('memberIds', [])
+        );
 
       // The creator must own the group and be its single initial member.
       allow create: if signedIn() &&

@@ -136,7 +136,24 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const savedGroups: string[] = json ? JSON.parse(json) : [];
             const localGroups = await LocalGroupStore.getAllGroups();
             const localGroupIds = Object.keys(localGroups);
-            const sourceGroups = groupsToCheck || Array.from(new Set([...savedGroups, ...localGroupIds, ...myGroups]));
+
+            // Recover groups that exist on the server but are missing from the
+            // local list (new device, cleared storage, previous sync bug).
+            let discoveredGroupIds: string[] = [];
+            try {
+                const discovered = await storageService.getGroupsForUser(userId);
+                discoveredGroupIds = discovered.map(group => group.id);
+                for (const group of discovered) {
+                    await LocalGroupStore.saveGroup(normalizeGroupMemberIds(group));
+                }
+            } catch (error) {
+                console.warn('[Sync] Could not discover groups from server:', error);
+            }
+
+            const sourceGroups = Array.from(new Set([
+                ...(groupsToCheck || [...savedGroups, ...localGroupIds, ...myGroups]),
+                ...discoveredGroupIds
+            ]));
 
             if (sourceGroups.length === 0) {
                 setMyGroups([]);
