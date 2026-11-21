@@ -1,7 +1,8 @@
 import { logger } from '../utils/logger';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { GroupProvider } from '../context/GroupContext';
 import { ConfigProvider } from '../context/ConfigContext';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -13,6 +14,7 @@ import i18n, { loadSavedLocale } from '../i18n/translations';
 const getMobileAds = () => {
     if (Platform.OS !== 'web') {
         try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module loaded at runtime
             return require('react-native-google-mobile-ads').default;
         } catch {
             return null;
@@ -27,7 +29,6 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 
 export default function RootLayout() {
     const router = useRouter();
-    const segments = useSegments();
     const [localeReady, setLocaleReady] = useState(false);
 
     useEffect(() => {
@@ -91,24 +92,26 @@ export default function RootLayout() {
         return () => {
             subscription.remove();
         };
-    }, []);
+    }, [router]);
 
     if (!localeReady) return null;
 
     return (
         <SafeAreaProvider>
-            <ConfigProvider>
-                <GroupProvider>
-                    <Stack screenOptions={{
-                        headerStyle: { backgroundColor: '#35b288' }, // Primary Green
-                        headerTintColor: '#fff',
-                        headerTitleStyle: { fontWeight: 'bold' },
-                    }}>
-                        <Stack.Screen name="index" options={{ headerShown: false }} />
-                        <Stack.Screen name="group/[id]" options={{ title: i18n.t('groupDetails') }} />
-                    </Stack>
-                </GroupProvider>
-            </ConfigProvider>
+            <ErrorBoundary>
+                <ConfigProvider>
+                    <GroupProvider>
+                        <Stack screenOptions={{
+                            headerStyle: { backgroundColor: '#35b288' }, // Primary Green
+                            headerTintColor: '#fff',
+                            headerTitleStyle: { fontWeight: 'bold' },
+                        }}>
+                            <Stack.Screen name="index" options={{ headerShown: false }} />
+                            <Stack.Screen name="group/[id]" options={{ title: i18n.t('groupDetails') }} />
+                        </Stack>
+                    </GroupProvider>
+                </ConfigProvider>
+            </ErrorBoundary>
         </SafeAreaProvider>
     );
 }

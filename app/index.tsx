@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Modal, TextInput, Linking, Alert, KeyboardAvoidingView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, TextInput, Linking, Alert, KeyboardAvoidingView, RefreshControl } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useGroup } from '../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +49,9 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
         return () => {
             if (unsubscribe) unsubscribe();
         };
+        // The context helpers are recreated on provider renders; subscribing
+        // again on every render would leak listeners.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groupId]);
 
     if (!group) return null;
@@ -93,13 +96,11 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
     );
 });
 
-
-
-// ... imports ...
+GroupListItem.displayName = 'GroupListItem';
 
 export default function HomeScreen() {
     const router = useRouter();
-    const { createGroup, joinGroup, myGroups, getGroup, addMember, isLoading, refreshMyGroups } = useGroup();
+    const { createGroup, joinGroup, myGroups, isLoading, refreshMyGroups } = useGroup();
     const [name, setName] = useState('');
     const [userName, setUserName] = useState('');
     const [joinId, setJoinId] = useState('');
@@ -108,7 +109,6 @@ export default function HomeScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const insets = useSafeAreaInsets();
     const { joinGroupId } = useLocalSearchParams<{ joinGroupId?: string }>();
-    const [showJoinModal, setShowJoinModal] = useState(false); // Added this state
     const [currency, setCurrency] = useState('');
     const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
@@ -122,12 +122,14 @@ export default function HomeScreen() {
     }, [refreshMyGroups]);
 
     // Handle deep link parameter
+    /* eslint-disable react-hooks/set-state-in-effect -- the route parameter is an external source of truth */
     useEffect(() => {
         if (joinGroupId) {
             setActiveTab('join');
             setJoinId(joinGroupId);
         }
     }, [joinGroupId]);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     const changeLanguage = async (lang: string) => {
         const normalized = await setAppLocale(lang);
@@ -144,7 +146,7 @@ export default function HomeScreen() {
                 setCurrency('');
                 router.push(`/group/${id}`);
             }
-        } catch (e) {
+        } catch {
             // Error already handled in context
         }
     };
@@ -158,14 +160,12 @@ export default function HomeScreen() {
         const result = await joinGroup(joinId, userName); // Changed joinGroupId to joinId and joinUserName to userName
 
         if (result.success) {
-            setShowJoinModal(false);
             setJoinId(''); // Changed setJoinGroupId to setJoinId
             setUserName(''); // Changed setJoinUserName to setUserName
             router.push(`/group/${joinId}`); // Changed joinGroupId to joinId
         } else {
             if (result.status === 'already_member') {
                 if (result.memberName && result.memberName.trim().toLowerCase() === userName.trim().toLowerCase()) {
-                    setShowJoinModal(false);
                     setJoinId('');
                     setUserName('');
                     router.push(`/group/${joinId}`);
@@ -177,7 +177,6 @@ export default function HomeScreen() {
                             {
                                 text: i18n.t('openGroup') || 'Open Group',
                                 onPress: () => {
-                                    setShowJoinModal(false);
                                     setJoinId('');
                                     setUserName('');
                                     router.push(`/group/${joinId}`);
@@ -194,7 +193,6 @@ export default function HomeScreen() {
                             {
                                 text: i18n.t('openGroup') || 'Open Group',
                                 onPress: () => {
-                                    setShowJoinModal(false);
                                     setJoinId('');
                                     setUserName('');
                                     router.push(`/group/${joinId}`);
@@ -207,7 +205,6 @@ export default function HomeScreen() {
                                         pathname: `/group/${joinId}`,
                                         params: { autoAddMemberName: userName }
                                     });
-                                    setShowJoinModal(false);
                                     setJoinId('');
                                     setUserName('');
                                 }

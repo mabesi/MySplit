@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, Modal, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, TextInput, Modal, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';

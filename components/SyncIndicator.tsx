@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { SyncStatus } from '../hooks/useSyncStatus';
+import { SyncStatus } from '../utils/sync';
 import i18n from '../i18n/translations';
 
 interface SyncIndicatorProps {

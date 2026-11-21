@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { AppState, Alert } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { Group, Expense, Member } from '../types';
-import { StorageService } from '../services/StorageInterface';
+import { GroupSnapshotMeta, StorageService } from '../services/StorageInterface';
 import { FirebaseService } from '../services/FirebaseService';
 import { MockService } from '../services/MockService';
 import { LocalGroupStore } from '../services/LocalGroupStore';
@@ -24,6 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { isValidDateInput, toDateInputValue } from '../utils/date';
 import { fromMinorUnits, normalizeCurrency, toMinorUnits } from '../utils/currency';
 import { getDeviceCurrency } from '../utils/deviceCurrency';
+import { SyncStatus } from '../utils/sync';
 // @ts-ignore
 import { auth as firebaseAuth } from '../firebaseConfig';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -43,7 +44,7 @@ interface GroupContextType {
     createGroup: (name: string, userName: string, currency?: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
     joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string; isActive?: boolean }>;
-    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string) => Promise<void>;
+    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string, options?: { settlement?: boolean }) => Promise<void>;
     addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
     deleteExpense: (expenseId: string) => Promise<void>;
@@ -54,6 +55,7 @@ interface GroupContextType {
     rejectMember: (memberId: string) => Promise<void>;
     refreshMyGroups: () => Promise<void>;
     subscribeToGroup: (groupId: string, onUpdate: (group: Group | null) => void) => () => void;
+    getSyncStatus: (groupId: string) => SyncStatus;
 }
 
 const GroupContext = createContext<GroupContextType | undefined>(undefined);
@@ -62,6 +64,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
     const [myGroups, setMyGroups] = useState<string[]>([]);
     const [userId, setUserId] = useState<string>('');
+    const userIdRef = useRef(userId);
+    useEffect(() => {
+        userIdRef.current = userId;
+    }, [userId]);
     const [isLoading, setIsLoading] = useState(false);
     const isGroupsLoaded = React.useRef(false);
 
@@ -73,6 +79,29 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Track active listeners and storageService unsubscribers per groupId
     const groupListeners = React.useRef<Map<string, Set<(group: Group | null) => void>>>(new Map());
     const groupUnsubscribers = React.useRef<Map<string, () => void>>(new Map());
+
+    // Sync status is derived from the snapshot metadata of the subscription
+    // that is already open for each group, so no extra Firestore listeners are
+    // needed. `isOnlineRef` mirrors the connectivity state for callbacks that
+    // were registered earlier.
+    const [syncStatuses, setSyncStatuses] = useState<Record<string, SyncStatus>>({});
+    const isOnlineRef = useRef(true);
+    const groupMetaRef = useRef<Map<string, GroupSnapshotMeta | undefined>>(new Map());
+
+    const updateSyncStatus = useCallback((groupId: string, status: SyncStatus) => {
+        setSyncStatuses(prev => (prev[groupId] === status ? prev : { ...prev, [groupId]: status }));
+    }, []);
+
+    const computeSyncStatus = (meta?: GroupSnapshotMeta): SyncStatus => {
+        if (!isOnlineRef.current) return 'offline';
+        if (meta?.hasPendingWrites) return 'pending';
+        return 'synced';
+    };
+
+    const getSyncStatus = useCallback(
+        (groupId: string): SyncStatus => syncStatuses[groupId] ?? 'synced',
+        [syncStatuses]
+    );
 
     // Helper to persist myGroups safely
     const persistMyGroups = async (groups: string[]) => {
@@ -186,8 +215,19 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 try {
                     const serverGroup = await storageService.getGroup(gId);
                     if (serverGroup) {
+                        const normalized = normalizeGroupMemberIds(serverGroup);
+                        const isMember = normalized.ownerId === userId ||
+                            normalized.memberIds.includes(userId);
+
+                        if (userId && !isMember) {
+                            logger.debug(`[Sync] User is no longer a member of ${gId}, removing locally.`);
+                            await LocalGroupStore.deleteGroup(gId);
+                            setCurrentGroup(prev => (prev?.id === gId ? null : prev));
+                            continue;
+                        }
+
                         validGroupIds.push(gId);
-                        await LocalGroupStore.saveGroup(normalizeGroupMemberIds(serverGroup));
+                        await LocalGroupStore.saveGroup(normalized);
                     } else {
                         // The group was deleted on the server!
                         logger.debug(`[Sync] Group ${gId} deleted on server, removing locally.`);
@@ -236,6 +276,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         loadGroups();
+        // refreshMyGroups is not memoized and re-running this effect whenever it
+        // changes would re-trigger the load/validation loop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
     useEffect(() => {
@@ -244,10 +287,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [myGroups, userId]);
 
     // ========== OPERATION QUEUE (OFFLINE OUTBOX) ==========
-    const processor = useRef<OperationProcessor | null>(null);
-    if (!processor.current) {
-        processor.current = new OperationProcessor(storageService);
-    }
+    const [processor] = useState(() => new OperationProcessor(storageService));
 
     const refreshPendingGroups = useCallback(async () => {
         const operations = await OperationQueue.getAll();
@@ -256,13 +296,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const processQueue = useCallback(async () => {
         try {
-            await processor.current?.processAll();
+            await processor.processAll();
         } catch (error) {
             logger.error('[Operations] Failed to process queue:', error);
         } finally {
             await refreshPendingGroups();
         }
-    }, [refreshPendingGroups]);
+    }, [refreshPendingGroups, processor]);
 
     const enqueueOperation = useCallback(async (operation: NewOperation) => {
         // Mark as pending synchronously so an in-flight server snapshot cannot
@@ -346,7 +386,29 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
 
         const unsubscribeNetInfo = NetInfo.addEventListener(state => {
-            if (state.isConnected) {
+            const connected = state.isConnected ?? false;
+            isOnlineRef.current = connected;
+
+            // Recompute the status of every group that currently has an open
+            // subscription using the last metadata received from Firestore.
+            setSyncStatuses(prev => {
+                const next: Record<string, SyncStatus> = {};
+                for (const id of groupUnsubscribers.current.keys()) {
+                    next[id] = !connected
+                        ? 'offline'
+                        : groupMetaRef.current.get(id)?.hasPendingWrites
+                            ? 'pending'
+                            : 'synced';
+                }
+                // Keep any status that was set for a group without a listener
+                // (for example, while a screen is transitioning).
+                for (const id of Object.keys(prev)) {
+                    if (!(id in next)) next[id] = prev[id];
+                }
+                return next;
+            });
+
+            if (connected) {
                 void processQueue();
             }
         });
@@ -572,7 +634,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // If not already subscribed to backend storageService for this group, subscribe
         if (!groupUnsubscribers.current.has(groupId)) {
-            const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup) => {
+            const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup, metadata) => {
+                groupMetaRef.current.set(groupId, metadata);
+                updateSyncStatus(groupId, computeSyncStatus(metadata));
+
                 if (!serverGroup) {
                     logger.debug(`[Subscribe] Group ${groupId} does not exist on server (deleted)`);
                     const hasPendingChanges =
@@ -608,7 +673,33 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     pendingGroups.current.has(groupId) ||
                     await OperationQueue.hasPendingForGroup(groupId) ||
                     await LocalGroupStore.isDirty(groupId);
-                let groupToDispatch = normalizeGroupMemberIds(serverGroup);
+                const normalizedServer = normalizeGroupMemberIds(serverGroup);
+                const uid = userIdRef.current;
+
+                // A group can be read by anyone who knows its ID, so a removed
+                // member (or a non-member opening the ID directly) must not keep
+                // a local copy. Pending operations (for example an in-flight
+                // join) are preserved.
+                const isMember = normalizedServer.ownerId === uid ||
+                    normalizedServer.memberIds.includes(uid);
+                if (uid && !isMember && !hasPendingChanges) {
+                    logger.debug(`[Subscribe] User is no longer a member of ${groupId}, removing locally`);
+                    await LocalGroupStore.deleteGroup(groupId);
+                    setMyGroups(prev => {
+                        const next = prev.filter(id => id !== groupId);
+                        persistMyGroups(next);
+                        return next;
+                    });
+                    setCurrentGroup(prev => (prev?.id === groupId ? null : prev));
+
+                    const listeners = groupListeners.current.get(groupId);
+                    if (listeners) {
+                        listeners.forEach(cb => cb(null));
+                    }
+                    return;
+                }
+
+                let groupToDispatch = normalizedServer;
 
                 if (hasPendingChanges) {
                     logger.debug(`[Subscribe] Group ${groupId} has pending operations, keeping local changes`);
@@ -629,6 +720,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 if (listeners) {
                     listeners.forEach(cb => cb(groupToDispatch));
                 }
+            }, () => {
+                updateSyncStatus(groupId, 'offline');
             });
 
             groupUnsubscribers.current.set(groupId, unsubscribe);
@@ -646,13 +739,28 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         backendUnsub();
                         groupUnsubscribers.current.delete(groupId);
                     }
+                    groupMetaRef.current.delete(groupId);
+                    setSyncStatuses(prev => {
+                        if (!(groupId in prev)) return prev;
+                        const next = { ...prev };
+                        delete next[groupId];
+                        return next;
+                    });
                 }
             }
         };
     };
 
     // ========== ADD EXPENSE ==========
-    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string) => {
+    const addExpense = async (
+        title: string,
+        amount: number,
+        paidBy: string,
+        splitAmong: string[],
+        date: number = Date.now(),
+        dateString?: string,
+        options?: { settlement?: boolean }
+    ) => {
         if (!currentGroup) return;
 
         const currency = normalizeCurrency(currentGroup.currency);
@@ -666,6 +774,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             paidBy,
             splitAmong,
             date,
+            // New expenses always carry the explicit flag. Legacy rows that do
+            // not have it keep being recognized by their translated title.
+            settlement: options?.settlement === true,
             dateString: dateString && isValidDateInput(dateString)
                 ? dateString
                 : toDateInputValue(new Date(date)),
@@ -924,7 +1035,8 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             approveMember,
             rejectMember,
             refreshMyGroups,
-            subscribeToGroup
+            subscribeToGroup,
+            getSyncStatus
         }}>
             {children}
         </GroupContext.Provider>

@@ -17,6 +17,9 @@ export interface Expense {
     splitAmong: string[]; // Member IDs
     date: number; // Timestamp used for sorting and legacy compatibility
     dateString?: string; // Calendar date YYYY-MM-DD used for display
+    // Explicit marker for settlement entries. Legacy rows do not have it and
+    // are recognized by their translated title.
+    settlement?: boolean;
     createdBy: string; // Member ID who created the expense
     createdAt: number;
 }

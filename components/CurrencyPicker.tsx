@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Modal, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import i18n from '../i18n/translations';
@@ -14,11 +14,13 @@ interface CurrencyPickerProps {
 export function CurrencyPicker({ visible, selected, onSelect, onClose }: CurrencyPickerProps) {
     const [search, setSearch] = useState('');
 
-    useEffect(() => {
-        if (!visible) setSearch('');
-    }, [visible]);
+    const handleClose = () => {
+        setSearch('');
+        onClose();
+    };
 
-    const sections = useMemo(() => getCurrencySections(i18n.locale), [i18n.locale]);
+    const locale = i18n.locale;
+    const sections = useMemo(() => getCurrencySections(locale), [locale]);
 
     const filteredSections = useMemo<CurrencySection[]>(() => {
         const query = search.trim().toLowerCase();
@@ -36,12 +38,12 @@ export function CurrencyPicker({ visible, selected, onSelect, onClose }: Currenc
     }, [sections, search]);
 
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
             <View style={styles.overlay}>
                 <View style={styles.container}>
                     <View style={styles.header}>
                         <Text style={styles.title}>{i18n.t('selectCurrency')}</Text>
-                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
                             <Ionicons name="close" size={22} color="#F8FAFC" />
                         </TouchableOpacity>
                     </View>
@@ -74,7 +76,7 @@ export function CurrencyPicker({ visible, selected, onSelect, onClose }: Currenc
                                     style={[styles.item, isSelected && styles.selectedItem]}
                                     onPress={() => {
                                         onSelect(item.code);
-                                        onClose();
+                                        handleClose();
                                     }}
                                 >
                                     <Text style={[styles.code, isSelected && styles.selectedText]}>{item.code}</Text>

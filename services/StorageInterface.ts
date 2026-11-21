@@ -1,5 +1,10 @@
 import { Group, Expense, Member } from '../types';
 
+export interface GroupSnapshotMeta {
+    fromCache: boolean;
+    hasPendingWrites: boolean;
+}
+
 export interface StorageService {
     /**
      * Creates a new group and returns it.
@@ -23,9 +28,15 @@ export interface StorageService {
     /**
      * Subscribes to real-time updates for a group.
      * Calls onUpdate with the group data, or null if the group does not exist / was deleted.
+     * The optional metadata mirrors the Firestore snapshot and is used to derive
+     * the sync indicator without opening a second listener.
      * Returns an unsubscribe function.
      */
-    subscribeToGroup(groupId: string, onUpdate: (group: Group | null) => void): () => void;
+    subscribeToGroup(
+        groupId: string,
+        onUpdate: (group: Group | null, metadata?: GroupSnapshotMeta) => void,
+        onError?: () => void
+    ): () => void;
 
     /**
      * Adds an expense to the group.

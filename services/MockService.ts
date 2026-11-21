@@ -11,8 +11,6 @@ import {
 import { getDeviceCurrency } from '../utils/deviceCurrency';
 import { normalizeCurrency } from '../utils/currency';
 
-const generateId = () => Math.random().toString(36).substring(2, 15);
-
 function buildGroup(data: Omit<Group, 'memberIds' | 'activeMemberIds'>): Group {
     const { memberIds, activeMemberIds } = deriveMemberIds(data.members);
     return { ...data, memberIds, activeMemberIds };

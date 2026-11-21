@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 // @ts-ignore
 import { initializeAuth, getReactNativePersistence, getAuth } from 'firebase/auth';
+import { initializeFirestore, CACHE_SIZE_UNLIMITED, persistentLocalCache, persistentSingleTabManager } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -17,8 +18,6 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 // Initialize Firestore with offline persistence for React Native
-import { initializeFirestore, CACHE_SIZE_UNLIMITED, persistentLocalCache, persistentSingleTabManager } from 'firebase/firestore';
-
 export const db = initializeFirestore(app, {
     experimentalForceLongPolling: true, // Required for React Native
     localCache: persistentLocalCache({
@@ -35,7 +34,7 @@ try {
     auth = initializeAuth(app, {
         persistence: getReactNativePersistence(AsyncStorage)
     });
-} catch (error) {
+} catch {
     // If already initialized, get the existing instance
     auth = getAuth(app);
 }

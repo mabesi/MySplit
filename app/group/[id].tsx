@@ -5,7 +5,6 @@ import { useGroup } from '../../context/GroupContext';
 import { calculateBalances, Balance, Transaction } from '../../utils/splitLogic';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import i18n from '../../i18n/translations';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
@@ -17,7 +16,10 @@ import { expenseDateString, formatDateString, parseDateInput, toDateInputValue }
 
 // Settlements are stored as expenses using the translated title, including legacy values.
 const SETTLEMENT_KEYS = ['Settlement', 'Quitação', 'Quitación'];
-const isSettlement = (expense: { title: string }) => SETTLEMENT_KEYS.includes(expense.title);
+const isSettlement = (expense: { title: string; settlement?: boolean }) =>
+    typeof expense.settlement === 'boolean'
+        ? expense.settlement
+        : SETTLEMENT_KEYS.includes(expense.title);
 
 // Legacy regular expenses stored the calendar date as UTC midnight; legacy
 // settlements stored Date.now(). Use local time only for the latter.
@@ -32,7 +34,7 @@ function expenseDisplayDate(expense: any): string {
 export default function GroupDetails() {
     const { id, autoAddMemberName } = useLocalSearchParams<{ id: string; autoAddMemberName?: string }>();
     const router = useRouter();
-    const { currentGroup, joinGroup, subscribeToGroup, addExpense, addMember, removeMember, deleteExpense, deleteGroup, updateGroupImage, approveMember, rejectMember, userId } = useGroup();
+    const { currentGroup, joinGroup, subscribeToGroup, addExpense, addMember, deleteExpense, userId } = useGroup();
     const [activeTab, setActiveTab] = useState<'expenses' | 'balances'>('expenses');
     const [showAddMember, setShowAddMember] = useState(false);
     const [showAddExpense, setShowAddExpense] = useState(false);
@@ -100,6 +102,9 @@ export default function GroupDetails() {
         return () => {
             unsubscribe();
         };
+        // These helpers are recreated by the provider on every render; the
+        // subscription must only depend on the route id.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     // Handle auto-add member from deep link or navigation
@@ -134,30 +139,19 @@ export default function GroupDetails() {
         };
 
         add();
+        // The context helpers are recreated on provider renders; this effect
+        // only reacts to a new auto-add request or group snapshot.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [autoAddMemberName, currentGroup]);
 
-    // Set default splitAmong when opening modal
-    useEffect(() => {
-        if (showAddExpense && currentGroup) {
-            setSplitAmong(
-                currentGroup.members
-                    .filter(m => m.status !== 'pending')
-                    .map(m => m.id)
-            );
+    // Balances are derived from the group; memoizing avoids recalculating on
+    // every unrelated render.
+    const { balances, transactions } = React.useMemo(() => {
+        if (!currentGroup) {
+            return { balances: [] as Balance[], transactions: [] as Transaction[] };
         }
-    }, [showAddExpense, currentGroup]);
-
-    // Force balance recalculation with state
-    const [balances, setBalances] = React.useState<Balance[]>([]);
-    const [transactions, setTransactions] = React.useState<Transaction[]>([]);
-
-    React.useEffect(() => {
-        if (currentGroup) {
-            const result = calculateBalances(currentGroup);
-            setBalances(result.balances);
-            setTransactions(result.transactions);
-        }
-    }, [currentGroup, currentGroup?.expenses.length, currentGroup?.members.length]);
+        return calculateBalances(currentGroup);
+    }, [currentGroup]);
 
     if (!currentGroup || (!!id && currentGroup.id !== id)) {
         return (
@@ -205,6 +199,15 @@ export default function GroupDetails() {
             </ScreenWrapper>
         );
     }
+
+    const openAddExpense = () => {
+        setSplitAmong(
+            currentGroup.members
+                .filter(m => m.status !== 'pending')
+                .map(m => m.id)
+        );
+        setShowAddExpense(true);
+    };
 
     const handleAddExpense = async () => {
         if (savingExpenseRef.current) return;
@@ -317,7 +320,10 @@ export default function GroupDetails() {
                                 i18n.t('settlement'),
                                 amount,
                                 fromMember.id,
-                                [toMember.id]
+                                [toMember.id],
+                                Date.now(),
+                                toDateInputValue(),
+                                { settlement: true }
                             );
                         } finally {
                             savingExpenseRef.current = false;
@@ -555,7 +561,7 @@ export default function GroupDetails() {
                                     return;
                                 }
 
-                                setShowAddExpense(true);
+                                openAddExpense();
                             }}
                         >
                             <Ionicons name="receipt-outline" size={24} color="white" />

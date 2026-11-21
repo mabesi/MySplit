@@ -146,6 +146,9 @@ const i18n = new I18n({
         uploading: "Uploading...",
         yes: "Yes",
         error: "Error",
+        somethingWentWrong: "Something went wrong",
+        unexpectedErrorMessage: "An unexpected error occurred. Please try again.",
+        tryAgain: "Try again",
         groupDetails: "Group Details"
     },
     es: {
@@ -291,6 +294,9 @@ const i18n = new I18n({
         uploading: "Subiendo...",
         yes: "Sí",
         error: "Error",
+        somethingWentWrong: "Algo salió mal",
+        unexpectedErrorMessage: "Ocurrió un error inesperado. Inténtalo de nuevo.",
+        tryAgain: "Intentar de nuevo",
         groupDetails: "Detalles del Grupo"
     },
     pt: {
@@ -436,6 +442,9 @@ const i18n = new I18n({
         uploading: "Enviando...",
         yes: "Sim",
         error: "Erro",
+        somethingWentWrong: "Algo deu errado",
+        unexpectedErrorMessage: "Ocorreu um erro inesperado. Tente novamente.",
+        tryAgain: "Tentar novamente",
         groupDetails: "Detalhes do Grupo"
     }
 });

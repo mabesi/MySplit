@@ -86,6 +86,7 @@ service cloud.firestore {
         e.splitAmong is list &&
         e.splitAmong.size() > 0 && e.splitAmong.size() <= 100 &&
         e.splitAmong.toSet().size() == e.splitAmong.size() &&
+        (!('settlement' in e) || e.settlement is bool) &&
         (e.date is int || e.date is float);
     }
 
@@ -381,6 +382,10 @@ service cloud.firestore {
       // Reading requires knowing the exact document ID. Collection listing is
       // only allowed for the two discovery queries below, which are always
       // constrained to the caller's own groups.
+      // Reads are open to any signed-in user because joining requires knowing
+      // the group ID and reading the document to build the pending request.
+      // The ID is effectively the invitation secret. The client verifies
+      // membership locally and drops groups the user no longer belongs to.
       allow get: if signedIn();
       allow list: if signedIn() &&
         request.query.limit <= 100 &&

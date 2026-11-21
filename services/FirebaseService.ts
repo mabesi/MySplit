@@ -14,7 +14,7 @@ import {
     limit
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import { StorageService } from './StorageInterface';
+import { GroupSnapshotMeta, StorageService } from './StorageInterface';
 import { Group, Expense, Member } from '../types';
 import { getDeviceCurrency } from '../utils/deviceCurrency';
 import { normalizeCurrency } from '../utils/currency';
@@ -105,7 +105,11 @@ export class FirebaseService implements StorageService {
         return Array.from(byId.values());
     }
 
-    subscribeToGroup(groupId: string, callback: (group: Group | null) => void): () => void {
+    subscribeToGroup(
+        groupId: string,
+        callback: (group: Group | null, metadata?: GroupSnapshotMeta) => void,
+        onError?: () => void
+    ): () => void {
         logger.debug(`🔔 FirebaseService: Subscribing to group ${groupId}...`);
         const groupRef = doc(db, 'groups', groupId);
 
@@ -120,7 +124,7 @@ export class FirebaseService implements StorageService {
                 });
 
                 if (snapshot.exists()) {
-                    callback(snapshot.data() as Group);
+                    callback(snapshot.data() as Group, snapshot.metadata);
                 } else if (
                     !snapshot.metadata.fromCache &&
                     !snapshot.metadata.hasPendingWrites
@@ -128,11 +132,12 @@ export class FirebaseService implements StorageService {
                     // Only a server-confirmed deletion removes the local copy.
                     // A cache miss while offline must not hide the group.
                     logger.warn(`⚠️ Group ${groupId} was deleted on the server`);
-                    callback(null);
+                    callback(null, snapshot.metadata);
                 }
             },
             (error) => {
                 logger.error(`❌ Subscription error for group ${groupId}:`, error);
+                onError?.();
             }
         );
 
