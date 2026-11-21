@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger';
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Alert } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { Group, Expense, Member } from '../types';
 import { StorageService } from '../services/StorageInterface';
@@ -161,7 +161,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             ]));
 
             if (sourceGroups.length === 0) {
-                setMyGroups([]);
+                // A group may have been created while the list was being read.
+                const localAfter = Object.keys(await LocalGroupStore.getAllGroups());
+                setMyGroups(localAfter);
+                await persistMyGroups(localAfter);
                 return;
             }
 
@@ -197,7 +200,10 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 }
             }
 
-            const uniqueValid = Array.from(new Set(validGroupIds));
+            // Include groups created while the validation was running. They are
+            // already in the local store even if they were not in `sourceGroups`.
+            const localAfter = Object.keys(await LocalGroupStore.getAllGroups());
+            const uniqueValid = Array.from(new Set([...validGroupIds, ...localAfter]));
             setMyGroups(uniqueValid);
             await persistMyGroups(uniqueValid);
         } catch (error) {
@@ -387,7 +393,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // ========== CREATE GROUP ==========
     const createGroup = async (name: string, userName: string, currency?: string) => {
         if (!userId) {
-            alert("Erro: Usuário não autenticado. Tente reiniciar o app.");
+            Alert.alert(i18n.t('error'), i18n.t('notAuthenticated'));
             return '';
         }
 
@@ -436,7 +442,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         } catch (error: any) {
             logger.error("[CreateGroup] Error:", error);
-            alert(`Error creating group: ${error.message}`);
+            Alert.alert(i18n.t('error'), i18n.t('createGroupError'));
             throw error;
         } finally {
             setIsLoading(false);
@@ -465,6 +471,9 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         } catch (error) {
             logger.error(`[GetGroup] Failed to fetch group ${groupId}:`, error);
+            // Let callers distinguish "not found" from "could not fetch"
+            // (for example, offline without a cached copy).
+            throw error;
         }
 
         return null;
@@ -477,7 +486,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         try {
             // Load from local first
-            let group = await getGroup(groupId);
+            let group: Group | null;
+            try {
+                group = await getGroup(groupId);
+            } catch (error) {
+                logger.error('[JoinGroup] Could not load group (offline?):', error);
+                return { success: false, status: 'error' as const };
+            }
 
             if (!group) {
                 return { success: false, status: 'group_not_found' as const };

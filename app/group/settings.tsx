@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, ScrollView, Share } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
@@ -45,6 +45,36 @@ export default function SettingsScreen() {
     const [imageUrl, setImageUrl] = useState('');
     const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
     const [savingImage, setSavingImage] = useState(false);
+    const [showShareNotice, setShowShareNotice] = useState(false);
+    const [pendingShareMessage, setPendingShareMessage] = useState<string | null>(null);
+    const shareNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => () => {
+        if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+    }, []);
+
+    // Only open the native share sheet after the notice has been rendered and
+    // painted, otherwise the sheet opens before the notice is visible.
+    useEffect(() => {
+        if (!pendingShareMessage) return;
+
+        const message = pendingShareMessage;
+        const frame = requestAnimationFrame(() => {
+            Share.share({ message, title: i18n.t('shareGroup') })
+                .catch((error) => logger.error('Error sharing group:', error))
+                .finally(() => setPendingShareMessage(null));
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [pendingShareMessage]);
+
+    const hideShareNotice = () => {
+        if (shareNoticeTimer.current) {
+            clearTimeout(shareNoticeTimer.current);
+            shareNoticeTimer.current = null;
+        }
+        setShowShareNotice(false);
+    };
 
     if (!currentGroup) return null;
 
@@ -104,24 +134,26 @@ export default function SettingsScreen() {
         try {
             // Copy group ID to clipboard first
             await Clipboard.setStringAsync(currentGroup.id);
-
-            const message = i18n.t('shareGroupMessage', { groupName: currentGroup.name });
-            const instructions = i18n.t('shareInstructions') || 'Open MySplit app and use this Group ID to join:';
-
-            await Share.share({
-                message: `${message}\n\n${instructions}`,
-                title: i18n.t('shareGroup')
-            });
-
-            // Show confirmation that ID was copied
-            Alert.alert(
-                i18n.t('groupIdCopied') || 'Group ID Copied!',
-                i18n.t('groupIdCopiedMessage') || 'The Group ID has been copied to your clipboard. You can paste it in the next message.',
-                [{ text: 'OK' }]
-            );
         } catch (error) {
-            logger.error('Error sharing group:', error);
+            logger.error('Error copying group ID:', error);
+            return;
         }
+
+        const message = i18n.t('shareGroupMessage', { groupName: currentGroup.name });
+        const instructions = i18n.t('shareInstructions') || 'Open MySplit app and use this Group ID to join:';
+
+        // Show the confirmation at the top of the screen so the share sheet
+        // (anchored to the bottom) does not cover it.
+        if (shareNoticeTimer.current) clearTimeout(shareNoticeTimer.current);
+        setShowShareNotice(true);
+        shareNoticeTimer.current = setTimeout(() => {
+            shareNoticeTimer.current = null;
+            setShowShareNotice(false);
+        }, 12000);
+
+        // The share sheet is opened by the effect above, once the notice has
+        // been painted, so both appear at the same time.
+        setPendingShareMessage(`${message}\n\n${instructions}`);
     };
 
     const handleDeleteGroup = () => {
@@ -268,6 +300,27 @@ export default function SettingsScreen() {
                 )}
             </ScrollView>
 
+            {showShareNotice && (
+                <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={styles.shareNotice}
+                    onPress={hideShareNotice}
+                    accessibilityRole="alert"
+                    accessibilityLiveRegion="polite"
+                >
+                    <Ionicons name="checkmark-circle" size={26} color="#16A34A" style={styles.shareNoticeIcon} />
+                    <View style={styles.shareNoticeContent}>
+                        <Text style={styles.shareNoticeTitle}>
+                            {i18n.t('groupIdCopied') || 'Group ID Copied!'}
+                        </Text>
+                        <Text style={styles.shareNoticeMessage}>
+                            {i18n.t('groupIdCopiedMessage')}
+                        </Text>
+                    </View>
+                    <Ionicons name="close" size={20} color="#475569" style={styles.shareNoticeClose} />
+                </TouchableOpacity>
+            )}
+
             <CurrencyPicker
                 visible={showCurrencyPicker}
                 selected={currency}
@@ -322,4 +375,28 @@ const styles = StyleSheet.create({
     menuIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(99, 102, 241, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
     menuText: { flex: 1, fontSize: 16, color: '#F8FAFC', fontWeight: '500' },
     divider: { height: 1, backgroundColor: '#334155', marginVertical: 12 },
+    shareNotice: {
+        position: 'absolute',
+        top: 56,
+        left: 16,
+        right: 16,
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        borderWidth: 2,
+        borderColor: '#35b288',
+        padding: 16,
+        zIndex: 1000,
+        elevation: 1000,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.5,
+        shadowRadius: 16,
+    },
+    shareNoticeIcon: { marginRight: 10, marginTop: 1 },
+    shareNoticeContent: { flex: 1 },
+    shareNoticeTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
+    shareNoticeMessage: { fontSize: 14, color: '#1E293B', marginTop: 6, lineHeight: 20, fontWeight: '600' },
+    shareNoticeClose: { marginLeft: 10, marginTop: 1 },
 });

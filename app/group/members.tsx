@@ -72,6 +72,21 @@ export default function MembersScreen() {
         );
     };
 
+    const handleRejectMember = (memberId: string, memberName: string) => {
+        Alert.alert(
+            i18n.t('reject'),
+            i18n.t('rejectMemberConfirm', { name: memberName }),
+            [
+                { text: i18n.t('cancel'), style: "cancel" },
+                {
+                    text: i18n.t('reject'),
+                    style: "destructive",
+                    onPress: async () => await rejectMember(memberId)
+                }
+            ]
+        );
+    };
+
     const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
     const pendingMembers = currentGroup.members.filter(m => m.status === 'pending');
     const isOwner = currentGroup.ownerId === userId;
@@ -108,7 +123,7 @@ export default function MembersScreen() {
                                         <TouchableOpacity onPress={() => handleApproveMember(m.id)}>
                                             <Ionicons name="checkmark-circle" size={28} color="#35b288" />
                                         </TouchableOpacity>
-                                        <TouchableOpacity onPress={() => rejectMember(m.id)}>
+                                        <TouchableOpacity onPress={() => handleRejectMember(m.id, m.name)}>
                                             <Ionicons name="close-circle" size={28} color="#EF4444" />
                                         </TouchableOpacity>
                                     </View>

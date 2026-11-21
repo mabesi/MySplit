@@ -12,7 +12,6 @@ export const useRewardedAd = () => {
     const [loaded, setLoaded] = useState(false);
     const [rewardReceived, setRewardReceived] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const adShownRef = useRef(false);
     const rewardedRef = useRef<RewardedAd | null>(null);
 
     // Determine Ad Unit ID based on config
@@ -35,6 +34,9 @@ export const useRewardedAd = () => {
 
         rewardedRef.current = rewarded;
 
+        let loadTimer: ReturnType<typeof setTimeout> | null = null;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
         const unsubscribeLoaded = rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
             logger.debug('✅ Ad loaded successfully');
             setLoaded(true);
@@ -45,6 +47,8 @@ export const useRewardedAd = () => {
             RewardedAdEventType.EARNED_REWARD,
             reward => {
                 logger.debug('🎁 User earned reward:', reward);
+                // Only this event means the ad was actually completed; closing
+                // early must not mark the reward as received.
                 setRewardReceived(true);
             },
         );
@@ -52,16 +56,6 @@ export const useRewardedAd = () => {
         const unsubscribeClosed = rewarded.addAdEventListener(AdEventType.CLOSED, () => {
             logger.debug('🚪 Ad closed');
             setLoaded(false);
-
-            // If ad was shown, mark reward as received
-            if (adShownRef.current) {
-                logger.debug('✅ Setting reward as received');
-                // Use setTimeout to ensure state update happens after ad closes
-                setTimeout(() => {
-                    setRewardReceived(true);
-                    adShownRef.current = false;
-                }, 100);
-            }
 
             // Reload ad for next time
             logger.debug('🔄 Reloading ad...');
@@ -75,21 +69,26 @@ export const useRewardedAd = () => {
             setError('Failed to load ad');
             setLoaded(false);
             // Try to reload after error
-            setTimeout(() => {
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => {
+                retryTimer = null;
                 logger.debug('🔄 Retrying ad load after error...');
                 rewarded.load();
             }, 5000);
         });
 
         // Start loading the ad after a small delay to ensure AdMob is ready
-        setTimeout(() => {
+        loadTimer = setTimeout(() => {
+            loadTimer = null;
             logger.debug('📥 Starting to load ad...');
             rewarded.load();
         }, 1000);
 
-        // Unsubscribe from events on unmount
+        // Unsubscribe from events and cancel pending timers on unmount
         return () => {
             logger.debug('🧹 Cleaning up ad listeners');
+            if (loadTimer) clearTimeout(loadTimer);
+            if (retryTimer) clearTimeout(retryTimer);
             unsubscribeLoaded();
             unsubscribeEarned();
             unsubscribeClosed();
@@ -101,7 +100,6 @@ export const useRewardedAd = () => {
     const showAd = () => {
         if (loaded && rewardedRef.current) {
             logger.debug('🎬 Showing ad...');
-            adShownRef.current = true; // Mark that we're showing the ad
             rewardedRef.current.show();
         } else {
             logger.warn('⚠️ Ad not loaded yet or ref is null');

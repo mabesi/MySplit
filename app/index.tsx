@@ -150,7 +150,10 @@ export default function HomeScreen() {
     };
 
     const handleJoinGroup = async () => {
-        if (!joinId || !userName) return; // Changed joinGroupId to joinId and joinUserName to userName
+        if (!joinId || !userName) {
+            alert(i18n.t('fillAllFields'));
+            return;
+        }
 
         const result = await joinGroup(joinId, userName); // Changed joinGroupId to joinId and joinUserName to userName
 
@@ -185,9 +188,7 @@ export default function HomeScreen() {
                 } else {
                     Alert.alert(
                         i18n.t('alreadyMember') || 'Already a member',
-                        (i18n.t('alreadyMemberMessage') || 'You are already in this group as {name}. Do you want to add a new local member named {newName}?')
-                            .replace('{name}', result.memberName || '')
-                            .replace('{newName}', userName),
+                        i18n.t('alreadyMemberMessage', { name: result.memberName || '', newName: userName }),
                         [
                             { text: i18n.t('cancel'), style: 'cancel' },
                             {

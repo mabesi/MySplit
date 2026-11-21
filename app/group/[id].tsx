@@ -78,6 +78,11 @@ export default function GroupDetails() {
                     i18n.t('groupNotFound') || 'Group not found',
                     [{ text: 'OK', onPress: () => router.replace('/') }]
                 );
+            } else if (res.status === 'error') {
+                Alert.alert(
+                    i18n.t('error') || 'Error',
+                    i18n.t('joinError') || 'Error joining group'
+                );
             }
         });
 
@@ -154,7 +159,7 @@ export default function GroupDetails() {
         }
     }, [currentGroup, currentGroup?.expenses.length, currentGroup?.members.length]);
 
-    if (!currentGroup) {
+    if (!currentGroup || (!!id && currentGroup.id !== id)) {
         return (
             <ScreenWrapper>
                 <View style={styles.center}>
