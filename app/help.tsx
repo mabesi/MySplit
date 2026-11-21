@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import i18n from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useConfig } from '../context/ConfigContext';
+import { formatDateString } from '../utils/date';
 
 export default function HelpScreen() {
     const router = useRouter();
@@ -18,20 +19,7 @@ export default function HelpScreen() {
 
     const formatDate = (dateString: string | undefined) => {
         if (!dateString) return '';
-        try {
-            // Create date object and adjust for timezone if necessary, 
-            // but usually simple date string "YYYY-MM-DD" works well with new Date()
-            // However, to ensure we don't get timezone shifts, we can treat it as UTC or just split it.
-            // Let's rely on standard Date parsing for now.
-            const date = new Date(dateString);
-            return date.toLocaleDateString(i18n.locale, {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
-        } catch (e) {
-            return dateString;
-        }
+        return formatDateString(dateString, i18n.locale);
     };
 
     const formattedLaunched = formatDate(launched);
@@ -49,6 +37,18 @@ export default function HelpScreen() {
             icon: 'enter-outline',
             title: i18n.t('helpJoinGroupTitle'),
             content: i18n.t('helpJoinGroupContent')
+        },
+        {
+            id: 'members',
+            icon: 'people-outline',
+            title: i18n.t('helpMembersTitle'),
+            content: i18n.t('helpMembersContent')
+        },
+        {
+            id: 'currency',
+            icon: 'cash-outline',
+            title: i18n.t('helpCurrencyTitle'),
+            content: i18n.t('helpCurrencyContent')
         },
         {
             id: 'addExpense',
@@ -73,6 +73,12 @@ export default function HelpScreen() {
             icon: 'share-social-outline',
             title: i18n.t('helpShareGroupTitle'),
             content: i18n.t('helpShareGroupContent')
+        },
+        {
+            id: 'groupImage',
+            icon: 'image-outline',
+            title: i18n.t('helpGroupImageTitle'),
+            content: i18n.t('helpGroupImageContent')
         },
         {
             id: 'appInfo',
