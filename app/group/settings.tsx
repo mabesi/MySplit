@@ -4,6 +4,7 @@ import { useRouter, Stack } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Clipboard from 'expo-clipboard';
 import i18n from '../../i18n/translations';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
@@ -12,41 +13,63 @@ import { formatCurrencyAmount, normalizeCurrency } from '../../utils/currency';
 
 export default function SettingsScreen() {
     const router = useRouter();
-    const { currentGroup, updateGroupImage, updateGroupCurrency, deleteGroup, userId, isLoading } = useGroup();
+    const { currentGroup, updateGroupImage, updateGroupCurrency, deleteGroup, userId } = useGroup();
     const [imageUrl, setImageUrl] = useState('');
     const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
+    const [savingImage, setSavingImage] = useState(false);
 
     if (!currentGroup) return null;
 
     const isOwner = currentGroup.ownerId === userId;
     const currency = normalizeCurrency(currentGroup.currency);
     const canChangeCurrency = isOwner && (!currentGroup.currency || currentGroup.expenses.length === 0);
+    const legacyImageTooLarge = !!currentGroup.imageUrl &&
+        currentGroup.imageUrl.startsWith('data:') &&
+        currentGroup.imageUrl.length > 100000;
 
     const pickImage = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [4, 3],
-            quality: 0.5, // Compress here
-            base64: true, // Get base64 directly
-            presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
-        });
+        try {
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 1,
+                presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+            });
 
-        if (!result.canceled) {
-            const asset = result.assets[0];
-            if (asset.base64) {
-                // Create Data URI
-                const dataUri = `data:image/jpeg;base64,${asset.base64}`;
-                setImageUrl(dataUri);
+            if (result.canceled) return;
+
+            // Keep only a small thumbnail in Firestore. The full-sized photo is
+            // discarded and never uploaded anywhere.
+            const manipulated = await ImageManipulator.manipulateAsync(
+                result.assets[0].uri,
+                [{ resize: { width: 160 } }],
+                {
+                    compress: 0.5,
+                    format: ImageManipulator.SaveFormat.JPEG,
+                    base64: true
+                }
+            );
+
+            if (manipulated.base64) {
+                setImageUrl(`data:image/jpeg;base64,${manipulated.base64}`);
             }
+        } catch (error) {
+            console.error('Failed to process group image:', error);
+            Alert.alert(i18n.t('error'), i18n.t('imageProcessError'));
         }
     };
 
     const handleUpdateImage = async () => {
-        if (!imageUrl) return;
-        await updateGroupImage(imageUrl);
-        setImageUrl('');
-        Alert.alert(i18n.t('success') || 'Success', i18n.t('imageUpdated') || 'Group image updated');
+        if (!imageUrl || savingImage) return;
+        setSavingImage(true);
+        try {
+            await updateGroupImage(imageUrl);
+            setImageUrl('');
+            Alert.alert(i18n.t('success') || 'Success', i18n.t('imageUpdated') || 'Group image updated');
+        } finally {
+            setSavingImage(false);
+        }
     };
 
     const handleShareGroup = async () => {
@@ -126,14 +149,17 @@ export default function SettingsScreen() {
                             </View>
                             {imageUrl && (
                                 <TouchableOpacity
-                                    style={[styles.saveButton, isLoading && { opacity: 0.7 }]}
+                                    style={[styles.saveButton, savingImage && { opacity: 0.7 }]}
                                     onPress={handleUpdateImage}
-                                    disabled={isLoading}
+                                    disabled={savingImage}
                                 >
                                     <Text style={styles.saveButtonText}>
-                                        {isLoading ? (i18n.t('uploading') || 'Uploading...') : i18n.t('saveImage')}
+                                        {savingImage ? `${i18n.t('save')}...` : i18n.t('saveImage')}
                                     </Text>
                                 </TouchableOpacity>
+                            )}
+                            {legacyImageTooLarge && (
+                                <Text style={styles.currencyNote}>{i18n.t('largeImageWarning')}</Text>
                             )}
                         </View>
                     </View>

@@ -334,10 +334,6 @@ export class FirebaseService implements StorageService {
         });
     }
 
-    async uploadImage(image: string, path: string): Promise<string> {
-        // Image is already a Base64 Data URI from the picker
-        return image;
-    }
 
     async getGroupMetadata(groupId: string): Promise<{ hasPendingWrites: boolean, fromCache: boolean } | null> {
         const docRef = doc(db, 'groups', groupId);

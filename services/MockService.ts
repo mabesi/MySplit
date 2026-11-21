@@ -306,9 +306,6 @@ export class MockService implements StorageService {
         this.notifySubscribers(groupId);
     }
 
-    async uploadImage(image: string, path: string): Promise<string> {
-        return image; // Mock upload
-    }
 
     async getGroupMetadata(groupId: string): Promise<{ hasPendingWrites: boolean, fromCache: boolean } | null> {
         const group = this.groups.get(groupId);

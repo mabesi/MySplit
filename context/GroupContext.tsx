@@ -827,49 +827,14 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        const queueImageUpdate = async (imageUrl: string) => {
-            await enqueueOperation({
-                id: `update-${groupId}`,
-                groupId,
-                type: 'updateGroup',
-                payload: { imageUrl }
-            });
-        };
+        console.log(`[UpdateImage] Saved thumbnail locally for group ${groupId}`);
 
-        console.log(`[UpdateImage] Saved image locally for group ${groupId}`);
-
-        // If it's a local file URI, try to upload in background
-        if (uri.startsWith('file://') || uri.startsWith('data:')) {
-            const performUpload = async () => {
-                try {
-                    const path = `groups/${groupId}/image_${Date.now()}`;
-                    const downloadUrl = await storageService.uploadImage(uri, path);
-
-                    console.log(`[UpdateImage] Uploaded image, got URL: ${downloadUrl}`);
-
-                    // Update with remote URL
-                    const finalGroup = {
-                        ...updatedGroup,
-                        imageUrl: downloadUrl,
-                        updatedAt: Date.now()
-                    };
-
-                    await saveGroupLocally(finalGroup);
-                    setCurrentGroup(finalGroup);
-                    await queueImageUpdate(downloadUrl);
-                } catch (error) {
-                    console.error("[UpdateImage] Upload failed, keeping local URI:", error);
-                    // Keep the local URI. The upload is retried only on a new
-                    // selection, since a local file URI cannot be uploaded by
-                    // another device.
-                    void refreshPendingGroups();
-                }
-            };
-
-            performUpload();
-        } else {
-            await queueImageUpdate(uri);
-        }
+        await enqueueOperation({
+            id: `update-${groupId}`,
+            groupId,
+            type: 'updateGroup',
+            payload: { imageUrl: uri }
+        });
     };
 
     // ========== UPDATE GROUP CURRENCY ==========

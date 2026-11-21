@@ -68,10 +68,6 @@ export interface StorageService {
      */
     updateGroup(groupId: string, updates: Partial<Group>): Promise<void>;
 
-    /**
-     * Uploads an image and returns the download URL.
-     */
-    uploadImage(image: string, path: string): Promise<string>;
 
     /**
      * Gets metadata about the group's sync status.

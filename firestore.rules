@@ -165,6 +165,16 @@ service cloud.firestore {
       return currency is string && currency.matches('^[A-Z]{3}$');
     }
 
+    // New images must be small thumbnails. An unchanged legacy image is allowed
+    // regardless of size so old groups can still be renamed/managed.
+    function canUpdateImage(oldData) {
+      let next = request.resource.data.get('imageUrl', '');
+      let previous = oldData.get('imageUrl', '');
+      return !('imageUrl' in request.resource.data) ||
+        next == previous ||
+        (next is string && next.size() <= 100000);
+    }
+
     function isNameUpdateAllowed(oldData, added) {
       return added.size() == 0 ||
         (added.size() == 1 &&
@@ -305,13 +315,7 @@ service cloud.firestore {
         request.resource.data.name is string &&
         normalizedName(request.resource.data.name).size() > 0 &&
         request.resource.data.name.size() <= 200 &&
-        (
-          !('imageUrl' in request.resource.data) ||
-          (
-            request.resource.data.imageUrl is string &&
-            request.resource.data.imageUrl.size() <= 900000
-          )
-        ) &&
+        canUpdateImage(oldData) &&
         validUpdatedAt();
     }
 

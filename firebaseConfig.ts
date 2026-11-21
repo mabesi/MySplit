@@ -40,7 +40,5 @@ try {
     auth = getAuth(app);
 }
 
-import { getStorage } from 'firebase/storage';
-export const storage = getStorage(app);
 
 export { auth };
