@@ -338,7 +338,10 @@ export default function HomeScreen() {
                                             onPress={() => setShowCurrencyPicker(true)}
                                         >
                                             <Ionicons name="cash-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
-                                            <Text style={styles.currencyText} numberOfLines={1}>
+                                            <Text
+                                                style={[styles.currencyText, currency && styles.currencyTextFilled]}
+                                                numberOfLines={1}
+                                            >
                                                 {currency
                                                     ? `${i18n.t('currency')}: ${currency} · ${formatCurrencyAmount(1234.56, currency, i18n.locale)}`
                                                     : i18n.t('selectCurrency')}
@@ -645,6 +648,9 @@ const styles = StyleSheet.create({
         color: '#64748B',
         padding: 12,
         fontSize: 15,
+    },
+    currencyTextFilled: {
+        color: '#F8FAFC',
     },
     currencyChevron: {
         paddingRight: 12,
