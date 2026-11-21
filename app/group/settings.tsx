@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Alert, ScrollView, Share } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
@@ -32,7 +33,7 @@ async function buildThumbnail(uri: string, fallbackBase64?: string | null): Prom
             return `data:image/jpeg;base64,${manipulated.base64}`;
         }
     } catch (error) {
-        console.warn('[Image] Manipulator unavailable, using picker fallback:', error);
+        logger.warn('[Image] Manipulator unavailable, using picker fallback:', error);
     }
 
     return fallbackBase64 ? `data:image/jpeg;base64,${fallbackBase64}` : null;
@@ -82,7 +83,7 @@ export default function SettingsScreen() {
 
             setImageUrl(dataUri);
         } catch (error) {
-            console.error('Failed to process group image:', error);
+            logger.error('Failed to process group image:', error);
             Alert.alert(i18n.t('error'), i18n.t('imageProcessError'));
         }
     };
@@ -119,7 +120,7 @@ export default function SettingsScreen() {
                 [{ text: 'OK' }]
             );
         } catch (error) {
-            console.error('Error sharing group:', error);
+            logger.error('Error sharing group:', error);
         }
     };
 

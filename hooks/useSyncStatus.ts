@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useRef } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
@@ -60,12 +61,12 @@ export function useSyncStatus(groupId: string | null): SyncStatus {
                         }
                     },
                     (error) => {
-                        console.error('Sync status error:', error);
+                        logger.error('Sync status error:', error);
                         setStatus('offline');
                     }
                 );
             } catch (error) {
-                console.error('Failed to create sync status listener:', error);
+                logger.error('Failed to create sync status listener:', error);
                 setStatus('offline');
             }
         }, 100); // Small delay to let group load first

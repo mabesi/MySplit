@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocales } from 'expo-localization';
 import { I18n } from 'i18n-js';
 
@@ -427,7 +428,56 @@ const i18n = new I18n({
     }
 });
 
+export const SUPPORTED_LOCALES = ['en', 'es', 'pt'] as const;
+export type AppLocale = typeof SUPPORTED_LOCALES[number];
+
+const LOCALE_STORAGE_KEY = 'app_locale';
+
+export function isSupportedLocale(locale?: string | null): locale is AppLocale {
+    const code = (locale || '').toLowerCase().split('-')[0];
+    return SUPPORTED_LOCALES.includes(code as AppLocale);
+}
+
+function normalizeLocale(locale?: string | null): AppLocale {
+    const code = (locale || '').toLowerCase().split('-')[0];
+    return isSupportedLocale(code) ? code : 'en';
+}
+
+export function getDeviceLocale(): AppLocale {
+    try {
+        return normalizeLocale(getLocales()[0]?.languageCode);
+    } catch {
+        return 'en';
+    }
+}
+
+export async function loadSavedLocale(): Promise<AppLocale> {
+    try {
+        const saved = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
+        const locale = isSupportedLocale(saved) ? saved : getDeviceLocale();
+        i18n.locale = locale;
+        return locale;
+    } catch {
+        const locale = getDeviceLocale();
+        i18n.locale = locale;
+        return locale;
+    }
+}
+
+export async function setAppLocale(locale: string): Promise<AppLocale> {
+    const normalized = normalizeLocale(locale);
+    i18n.locale = normalized;
+
+    try {
+        await AsyncStorage.setItem(LOCALE_STORAGE_KEY, normalized);
+    } catch {
+        // The in-memory locale is still applied.
+    }
+
+    return normalized;
+}
+
 i18n.enableFallback = true;
-i18n.locale = getLocales()[0].languageCode ?? 'en';
+i18n.locale = getDeviceLocale();
 
 export default i18n;

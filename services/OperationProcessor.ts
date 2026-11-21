@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { Group, Expense, Member } from '../types';
 import { StorageService } from './StorageInterface';
 import { LocalGroupStore } from './LocalGroupStore';
@@ -70,7 +71,7 @@ export class OperationProcessor {
                     await this.apply(operation);
                     await OperationQueue.remove(operation.id);
                 } catch (error) {
-                    console.error(
+                    logger.error(
                         `[Operations] Failed to apply ${operation.type} for group ${groupId}:`,
                         error
                     );

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 export interface AppConfig {
     realAds: boolean;
     launched: string;
@@ -22,7 +23,7 @@ export const ConfigService = {
             const data: RemoteConfig = await response.json();
             return data.mysplit;
         } catch (error) {
-            console.error("Failed to fetch app config:", error);
+            logger.error("Failed to fetch app config:", error);
             return null;
         }
     }

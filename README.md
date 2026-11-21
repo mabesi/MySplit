@@ -239,6 +239,8 @@ MySplit/
 
 The app supports English, Portuguese, and Spanish. The language is selected on the home screen.
 
+- The selected language is saved locally and restored on the next launch.
+- On first launch, the device language is used when supported; otherwise the app falls back to English.
 - Language controls number separators and date formatting.
 - Currency is independent: it comes from the group and is formatted with `Intl.NumberFormat`.
 - Examples:

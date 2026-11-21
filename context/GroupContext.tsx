@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { AppState } from 'react-native';
@@ -78,7 +79,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             await AsyncStorage.setItem('myGroups', JSON.stringify(groups));
         } catch (e) {
-            console.error('[Groups] Failed to persist myGroups:', e);
+            logger.error('[Groups] Failed to persist myGroups:', e);
         }
     };
 
@@ -88,11 +89,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
                 const storedUid = await AsyncStorage.getItem('uid');
                 if (storedUid) {
-                    console.log('[Auth] Restored user ID from storage:', storedUid);
+                    logger.debug('[Auth] Restored user ID from storage:', storedUid);
                     setUserId(storedUid);
                 }
             } catch (e) {
-                console.error('[Auth] Failed to load stored user ID:', e);
+                logger.error('[Auth] Failed to load stored user ID:', e);
             }
         };
         loadStoredUser();
@@ -105,11 +106,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             // @ts-ignore
             unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
                 if (user) {
-                    console.log('[Auth] User connected:', user.uid);
+                    logger.debug('[Auth] User connected:', user.uid);
                     setUserId(user.uid);
                     await AsyncStorage.setItem('uid', user.uid);
                 } else {
-                    console.log('[Auth] No user, attempting anonymous sign in');
+                    logger.debug('[Auth] No user, attempting anonymous sign in');
                     const storedUid = await AsyncStorage.getItem('uid');
                     if (storedUid) {
                         setUserId(storedUid);
@@ -121,7 +122,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         setUserId(cred.user.uid);
                         await AsyncStorage.setItem('uid', cred.user.uid);
                     } catch (error) {
-                        console.error('[Auth] Anonymous sign in failed (likely offline):', error);
+                        logger.error('[Auth] Anonymous sign in failed (likely offline):', error);
                     }
                 }
             });
@@ -151,7 +152,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     await LocalGroupStore.saveGroup(normalizeGroupMemberIds(group));
                 }
             } catch (error) {
-                console.warn('[Sync] Could not discover groups from server:', error);
+                logger.warn('[Sync] Could not discover groups from server:', error);
             }
 
             const sourceGroups = Array.from(new Set([
@@ -164,7 +165,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 return;
             }
 
-            console.log('[Sync] Validating myGroups against server...', sourceGroups);
+            logger.debug('[Sync] Validating myGroups against server...', sourceGroups);
             const validGroupIds: string[] = [];
 
             for (const gId of sourceGroups) {
@@ -186,12 +187,12 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         await LocalGroupStore.saveGroup(normalizeGroupMemberIds(serverGroup));
                     } else {
                         // The group was deleted on the server!
-                        console.log(`[Sync] Group ${gId} deleted on server, removing locally.`);
+                        logger.debug(`[Sync] Group ${gId} deleted on server, removing locally.`);
                         await LocalGroupStore.deleteGroup(gId);
                         setCurrentGroup(prev => (prev?.id === gId ? null : prev));
                     }
                 } catch (err) {
-                    console.log(`[Sync] Could not verify group ${gId} (offline?), keeping local copy:`, err);
+                    logger.debug(`[Sync] Could not verify group ${gId} (offline?), keeping local copy:`, err);
                     validGroupIds.push(gId);
                 }
             }
@@ -200,7 +201,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setMyGroups(uniqueValid);
             await persistMyGroups(uniqueValid);
         } catch (error) {
-            console.error('[Sync] Error refreshing myGroups:', error);
+            logger.error('[Sync] Error refreshing myGroups:', error);
         }
     };
 
@@ -224,7 +225,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 // Reconcile and validate myGroups against server
                 refreshMyGroups(mergedGroupIds);
             } catch (error) {
-                console.error('[Groups] Failed to load myGroups:', error);
+                logger.error('[Groups] Failed to load myGroups:', error);
             }
         };
 
@@ -251,7 +252,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             await processor.current?.processAll();
         } catch (error) {
-            console.error('[Operations] Failed to process queue:', error);
+            logger.error('[Operations] Failed to process queue:', error);
         } finally {
             await refreshPendingGroups();
         }
@@ -265,7 +266,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             await OperationQueue.enqueue(operation);
         } catch (error) {
-            console.error('[Operations] Failed to enqueue operation:', error);
+            logger.error('[Operations] Failed to enqueue operation:', error);
         }
 
         void processQueue();
@@ -328,7 +329,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
 
         start().catch(error => {
-            console.error('[Operations] Failed to start queue processing:', error);
+            logger.error('[Operations] Failed to start queue processing:', error);
         });
 
         const unsubscribeQueue = OperationQueue.subscribe(() => {
@@ -430,11 +431,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 payload: {}
             });
 
-            console.log(`[CreateGroup] Created group ${newGroupId} locally`);
+            logger.debug(`[CreateGroup] Created group ${newGroupId} locally`);
             return newGroupId;
 
         } catch (error: any) {
-            console.error("[CreateGroup] Error:", error);
+            logger.error("[CreateGroup] Error:", error);
             alert(`Error creating group: ${error.message}`);
             throw error;
         } finally {
@@ -447,7 +448,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Always load from local storage first
         const localGroup = await LocalGroupStore.getGroup(groupId);
         if (localGroup) {
-            console.log(`[GetGroup] Loaded group ${groupId} from local storage`);
+            logger.debug(`[GetGroup] Loaded group ${groupId} from local storage`);
             return localGroup;
         }
 
@@ -459,11 +460,11 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const normalized = normalizeGroupMemberIds(serverGroup);
                 // Save to local storage for future offline access
                 await LocalGroupStore.saveGroup(normalized);
-                console.log(`[GetGroup] Fetched group ${groupId} from server`);
+                logger.debug(`[GetGroup] Fetched group ${groupId} from server`);
                 return normalized;
             }
         } catch (error) {
-            console.error(`[GetGroup] Failed to fetch group ${groupId}:`, error);
+            logger.error(`[GetGroup] Failed to fetch group ${groupId}:`, error);
         }
 
         return null;
@@ -539,7 +540,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             return { success: true, status: 'joined' as const };
         } catch (error) {
-            console.error("[JoinGroup] Error:", error);
+            logger.error("[JoinGroup] Error:", error);
             return { success: false, status: 'error' as const };
         } finally {
             setIsLoading(false);
@@ -558,14 +559,14 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!groupUnsubscribers.current.has(groupId)) {
             const unsubscribe = storageService.subscribeToGroup(groupId, async (serverGroup) => {
                 if (!serverGroup) {
-                    console.log(`[Subscribe] Group ${groupId} does not exist on server (deleted)`);
+                    logger.debug(`[Subscribe] Group ${groupId} does not exist on server (deleted)`);
                     const hasPendingChanges =
                         pendingGroups.current.has(groupId) ||
                         await OperationQueue.hasPendingForGroup(groupId) ||
                         await LocalGroupStore.isDirty(groupId);
 
                     if (hasPendingChanges) {
-                        console.log(`[Subscribe] Group ${groupId} has pending operations, keeping local copy`);
+                        logger.debug(`[Subscribe] Group ${groupId} has pending operations, keeping local copy`);
                         return;
                     }
 
@@ -595,13 +596,13 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 let groupToDispatch = normalizeGroupMemberIds(serverGroup);
 
                 if (hasPendingChanges) {
-                    console.log(`[Subscribe] Group ${groupId} has pending operations, keeping local changes`);
+                    logger.debug(`[Subscribe] Group ${groupId} has pending operations, keeping local changes`);
                     const localGroup = await LocalGroupStore.getGroup(groupId);
                     if (localGroup) {
                         groupToDispatch = localGroup;
                     }
                 } else {
-                    console.log(`[Subscribe] Updating group ${groupId} from server`);
+                    logger.debug(`[Subscribe] Updating group ${groupId} from server`);
                     await LocalGroupStore.saveGroup(groupToDispatch);
                 }
 
@@ -675,7 +676,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             payload: newExpense
         });
 
-        console.log(`[AddExpense] Added expense "${title}" to group ${currentGroup.id}`);
+        logger.debug(`[AddExpense] Added expense "${title}" to group ${currentGroup.id}`);
     };
 
     // ========== ADD MEMBER ==========
@@ -718,7 +719,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             payload: newMember
         });
 
-        console.log(`[AddMember] Added member "${trimmedName}" to group ${currentGroup.id}`);
+        logger.debug(`[AddMember] Added member "${trimmedName}" to group ${currentGroup.id}`);
         return { success: true };
     };
 
@@ -812,7 +813,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await saveGroupLocally(updatedGroup);
         setCurrentGroup(updatedGroup);
 
-        console.log(`[UpdateImage] Saved thumbnail locally for group ${groupId}`);
+        logger.debug(`[UpdateImage] Saved thumbnail locally for group ${groupId}`);
 
         await enqueueOperation({
             id: `update-${groupId}`,
@@ -874,7 +875,7 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             payload: { memberId, status: 'active' }
         });
 
-        console.log(
+        logger.debug(
             plan.mergeMemberId
                 ? `[ApproveMember] Queued approval for member ${memberId}, assuming virtual member ${plan.mergeMemberId}`
                 : `[ApproveMember] Queued approval for member ${memberId}`

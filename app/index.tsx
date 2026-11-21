@@ -1,10 +1,11 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, Modal, TextInput, Linking, Alert, KeyboardAvoidingView, RefreshControl } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useGroup } from '../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import i18n from '../i18n/translations';
+import i18n, { setAppLocale } from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSyncStatus } from '../hooks/useSyncStatus';
@@ -30,7 +31,7 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
                     setGroup(g);
                 }
             } catch (error) {
-                console.log(`Could not load group ${groupId} initially (might be offline):`, error);
+                logger.debug(`Could not load group ${groupId} initially (might be offline):`, error);
                 // Don't fail - subscription will provide data
             }
 
@@ -40,7 +41,7 @@ const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
                     setGroup(updatedGroup);
                 });
             } catch (error) {
-                console.error(`Failed to subscribe to group ${groupId}:`, error);
+                logger.error(`Failed to subscribe to group ${groupId}:`, error);
             }
         };
         load();
@@ -128,9 +129,9 @@ export default function HomeScreen() {
         }
     }, [joinGroupId]);
 
-    const changeLanguage = (lang: string) => {
-        i18n.locale = lang;
-        setLocale(lang);
+    const changeLanguage = async (lang: string) => {
+        const normalized = await setAppLocale(lang);
+        setLocale(normalized);
     };
 
     const handleCreate = async () => {

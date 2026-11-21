@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import {
     doc,
     getDoc,
@@ -60,11 +61,11 @@ export class FirebaseService implements StorageService {
     }
 
     async getGroup(groupId: string): Promise<Group | null> {
-        console.log(`📥 FirebaseService: Getting group ${groupId}...`);
+        logger.debug(`📥 FirebaseService: Getting group ${groupId}...`);
         const docRef = doc(db, 'groups', groupId);
         const docSnap = await getDoc(docRef);
 
-        console.log(`📊 Group ${groupId}:`, {
+        logger.debug(`📊 Group ${groupId}:`, {
             exists: docSnap.exists(),
             fromCache: docSnap.metadata.fromCache,
             hasPendingWrites: docSnap.metadata.hasPendingWrites
@@ -80,7 +81,7 @@ export class FirebaseService implements StorageService {
             throw new Error(`Group ${groupId} is not available from cache`);
         }
 
-        console.warn(`⚠️ Group ${groupId} not found`);
+        logger.warn(`⚠️ Group ${groupId} not found`);
         return null;
     }
 
@@ -105,14 +106,14 @@ export class FirebaseService implements StorageService {
     }
 
     subscribeToGroup(groupId: string, callback: (group: Group | null) => void): () => void {
-        console.log(`🔔 FirebaseService: Subscribing to group ${groupId}...`);
+        logger.debug(`🔔 FirebaseService: Subscribing to group ${groupId}...`);
         const groupRef = doc(db, 'groups', groupId);
 
         const unsubscribe = onSnapshot(
             groupRef,
             { includeMetadataChanges: true },
             (snapshot) => {
-                console.log(`🔔 Group ${groupId} update:`, {
+                logger.debug(`🔔 Group ${groupId} update:`, {
                     exists: snapshot.exists(),
                     fromCache: snapshot.metadata.fromCache,
                     hasPendingWrites: snapshot.metadata.hasPendingWrites
@@ -126,12 +127,12 @@ export class FirebaseService implements StorageService {
                 ) {
                     // Only a server-confirmed deletion removes the local copy.
                     // A cache miss while offline must not hide the group.
-                    console.warn(`⚠️ Group ${groupId} was deleted on the server`);
+                    logger.warn(`⚠️ Group ${groupId} was deleted on the server`);
                     callback(null);
                 }
             },
             (error) => {
-                console.error(`❌ Subscription error for group ${groupId}:`, error);
+                logger.error(`❌ Subscription error for group ${groupId}:`, error);
             }
         );
 

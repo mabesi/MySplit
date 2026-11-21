@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
@@ -45,7 +46,7 @@ function emitChange() {
         try {
             listener();
         } catch (error) {
-            console.error('[OperationQueue] Listener error:', error);
+            logger.error('[OperationQueue] Listener error:', error);
         }
     });
 }
@@ -69,7 +70,7 @@ async function readQueue(): Promise<QueuedOperation[]> {
         const parsed = JSON.parse(json);
         return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
-        console.error('[OperationQueue] Failed to read queue:', error);
+        logger.error('[OperationQueue] Failed to read queue:', error);
         return [];
     }
 }

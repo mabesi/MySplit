@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Group } from '../types';
 import { withMemberIds } from '../utils/memberLogic';
@@ -36,9 +37,9 @@ export class LocalGroupStore {
                 groups[group.id] = withMemberIds(group);
 
                 await AsyncStorage.setItem(this.GROUPS_KEY, JSON.stringify(groups));
-                console.log(`[LocalStore] Saved group ${group.id}`);
+                logger.debug(`[LocalStore] Saved group ${group.id}`);
             } catch (error) {
-                console.error('[LocalStore] Failed to save group:', error);
+                logger.error('[LocalStore] Failed to save group:', error);
                 throw error;
             }
         });
@@ -56,7 +57,7 @@ export class LocalGroupStore {
             const group = groups[groupId];
             return group ? withMemberIds(group) : null;
         } catch (error) {
-            console.error('[LocalStore] Failed to get group:', error);
+            logger.error('[LocalStore] Failed to get group:', error);
             return null;
         }
     }
@@ -75,7 +76,7 @@ export class LocalGroupStore {
             });
             return normalized;
         } catch (error) {
-            console.error('[LocalStore] Failed to get all groups:', error);
+            logger.error('[LocalStore] Failed to get all groups:', error);
             return {};
         }
     }
@@ -92,10 +93,10 @@ export class LocalGroupStore {
                 if (!dirtySet.includes(groupId)) {
                     dirtySet.push(groupId);
                     await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(dirtySet));
-                    console.log(`[LocalStore] Marked group ${groupId} as dirty`);
+                    logger.debug(`[LocalStore] Marked group ${groupId} as dirty`);
                 }
             } catch (error) {
-                console.error('[LocalStore] Failed to mark dirty:', error);
+                logger.error('[LocalStore] Failed to mark dirty:', error);
             }
         });
     }
@@ -108,7 +109,7 @@ export class LocalGroupStore {
             try {
                 await this.writeDirtyWithoutLock(groupId);
             } catch (error) {
-                console.error('[LocalStore] Failed to clear dirty:', error);
+                logger.error('[LocalStore] Failed to clear dirty:', error);
             }
         });
     }
@@ -119,7 +120,7 @@ export class LocalGroupStore {
 
         const filtered = dirtySet.filter(id => id !== groupId);
         await AsyncStorage.setItem(this.DIRTY_KEY, JSON.stringify(filtered));
-        console.log(`[LocalStore] Cleared dirty flag for group ${groupId}`);
+        logger.debug(`[LocalStore] Cleared dirty flag for group ${groupId}`);
     }
 
     /**
@@ -130,7 +131,7 @@ export class LocalGroupStore {
             const dirtyJson = await AsyncStorage.getItem(this.DIRTY_KEY);
             return dirtyJson ? JSON.parse(dirtyJson) : [];
         } catch (error) {
-            console.error('[LocalStore] Failed to get dirty groups:', error);
+            logger.error('[LocalStore] Failed to get dirty groups:', error);
             return [];
         }
     }
@@ -157,9 +158,9 @@ export class LocalGroupStore {
                 }
 
                 await this.writeDirtyWithoutLock(groupId);
-                console.log(`[LocalStore] Deleted group ${groupId}`);
+                logger.debug(`[LocalStore] Deleted group ${groupId}`);
             } catch (error) {
-                console.error('[LocalStore] Failed to delete group:', error);
+                logger.error('[LocalStore] Failed to delete group:', error);
             }
         });
     }

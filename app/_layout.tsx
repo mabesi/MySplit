@@ -1,11 +1,13 @@
+import { logger } from '../utils/logger';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GroupProvider } from '../context/GroupContext';
 import { ConfigProvider } from '../context/ConfigContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
-import { useEffect } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useState } from 'react';
 import { Platform, Linking } from 'react-native';
-import i18n from '../i18n/translations';
+import i18n, { loadSavedLocale } from '../i18n/translations';
 
 // Safe native module loader for mobileAds
 const getMobileAds = () => {
@@ -19,9 +21,28 @@ const getMobileAds = () => {
     return null;
 };
 
+SplashScreen.preventAutoHideAsync().catch(() => {
+    // The splash screen may already be hidden in some development flows.
+});
+
 export default function RootLayout() {
     const router = useRouter();
     const segments = useSegments();
+    const [localeReady, setLocaleReady] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        loadSavedLocale().finally(() => {
+            if (cancelled) return;
+            setLocaleReady(true);
+            SplashScreen.hideAsync().catch(() => {});
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         // Initialize Google Mobile Ads only on native platforms where supported
@@ -33,7 +54,7 @@ export default function RootLayout() {
                     // AdMob initialized
                 })
                 .catch((error: any) => {
-                    console.error('❌ AdMob initialization error:', error);
+                    logger.error('❌ AdMob initialization error:', error);
                 });
         }
 
@@ -71,6 +92,8 @@ export default function RootLayout() {
             subscription.remove();
         };
     }, []);
+
+    if (!localeReady) return null;
 
     return (
         <SafeAreaProvider>
