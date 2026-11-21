@@ -639,9 +639,9 @@ const styles = StyleSheet.create({
     },
     currencyText: {
         flex: 1,
-        color: '#F8FAFC',
-        paddingVertical: 12,
-        fontSize: 14,
+        color: '#64748B',
+        padding: 12,
+        fontSize: 15,
     },
     currencyChevron: {
         paddingRight: 12,
