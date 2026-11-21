@@ -172,7 +172,7 @@ service cloud.firestore {
       let previous = oldData.get('imageUrl', '');
       return !('imageUrl' in request.resource.data) ||
         next == previous ||
-        (next is string && next.size() <= 100000);
+        (next is string && next.size() <= 200000);
     }
 
     function isNameUpdateAllowed(oldData, added) {

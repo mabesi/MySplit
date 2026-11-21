@@ -4,12 +4,39 @@ import { useRouter, Stack } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as Clipboard from 'expo-clipboard';
 import i18n from '../../i18n/translations';
 import { ScreenWrapper } from '../../components/ScreenWrapper';
 import { CurrencyPicker } from '../../components/CurrencyPicker';
 import { formatCurrencyAmount, normalizeCurrency } from '../../utils/currency';
+
+/**
+ * Creates a small thumbnail. expo-image-manipulator is a native module, so it
+ * is imported lazily: in a binary that does not include it yet, the picker's
+ * own compressed base64 is used as a fallback instead of crashing the route.
+ */
+async function buildThumbnail(uri: string, fallbackBase64?: string | null): Promise<string | null> {
+    try {
+        const ImageManipulator = await import('expo-image-manipulator');
+        const manipulated = await ImageManipulator.manipulateAsync(
+            uri,
+            [{ resize: { width: 160 } }],
+            {
+                compress: 0.5,
+                format: ImageManipulator.SaveFormat.JPEG,
+                base64: true
+            }
+        );
+
+        if (manipulated.base64) {
+            return `data:image/jpeg;base64,${manipulated.base64}`;
+        }
+    } catch (error) {
+        console.warn('[Image] Manipulator unavailable, using picker fallback:', error);
+    }
+
+    return fallbackBase64 ? `data:image/jpeg;base64,${fallbackBase64}` : null;
+}
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -25,7 +52,7 @@ export default function SettingsScreen() {
     const canChangeCurrency = isOwner && (!currentGroup.currency || currentGroup.expenses.length === 0);
     const legacyImageTooLarge = !!currentGroup.imageUrl &&
         currentGroup.imageUrl.startsWith('data:') &&
-        currentGroup.imageUrl.length > 100000;
+        currentGroup.imageUrl.length > 200000;
 
     const pickImage = async () => {
         try {
@@ -33,27 +60,27 @@ export default function SettingsScreen() {
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
                 aspect: [4, 3],
-                quality: 1,
+                quality: 0.2,
+                base64: true,
                 presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
             });
 
             if (result.canceled) return;
 
-            // Keep only a small thumbnail in Firestore. The full-sized photo is
-            // discarded and never uploaded anywhere.
-            const manipulated = await ImageManipulator.manipulateAsync(
-                result.assets[0].uri,
-                [{ resize: { width: 160 } }],
-                {
-                    compress: 0.5,
-                    format: ImageManipulator.SaveFormat.JPEG,
-                    base64: true
-                }
-            );
+            const asset = result.assets[0];
+            const dataUri = await buildThumbnail(asset.uri, asset.base64);
 
-            if (manipulated.base64) {
-                setImageUrl(`data:image/jpeg;base64,${manipulated.base64}`);
+            if (!dataUri) {
+                Alert.alert(i18n.t('error'), i18n.t('imageProcessError'));
+                return;
             }
+
+            if (dataUri.length > 200000) {
+                Alert.alert(i18n.t('error'), i18n.t('imageTooLarge'));
+                return;
+            }
+
+            setImageUrl(dataUri);
         } catch (error) {
             console.error('Failed to process group image:', error);
             Alert.alert(i18n.t('error'), i18n.t('imageProcessError'));
