@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, Modal, Alert } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
@@ -12,24 +12,36 @@ export default function MembersScreen() {
     const { currentGroup, addMember, removeMember, approveMember, rejectMember, userId } = useGroup();
     const [showAddMember, setShowAddMember] = useState(false);
     const [newMemberName, setNewMemberName] = useState('');
+    const [savingMember, setSavingMember] = useState(false);
+    const savingMemberRef = useRef(false);
 
     if (!currentGroup) return null;
 
     const handleAddMember = async () => {
+        if (savingMemberRef.current) return;
+
         const name = newMemberName.trim();
         if (!name) return;
 
-        const result = await addMember(name);
-        if (!result.success) {
-            Alert.alert(
-                i18n.t('error'),
-                i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
-            );
-            return;
-        }
+        savingMemberRef.current = true;
+        setSavingMember(true);
 
-        setShowAddMember(false);
-        setNewMemberName('');
+        try {
+            const result = await addMember(name);
+            if (!result.success) {
+                Alert.alert(
+                    i18n.t('error'),
+                    i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
+                );
+                return;
+            }
+
+            setShowAddMember(false);
+            setNewMemberName('');
+        } finally {
+            savingMemberRef.current = false;
+            setSavingMember(false);
+        }
     };
 
     const handleApproveMember = async (memberId: string) => {
@@ -157,12 +169,18 @@ export default function MembersScreen() {
                             <TouchableOpacity style={styles.cancelButton} onPress={() => setShowAddMember(false)}>
                                 <Text style={styles.cancelButtonText}>{i18n.t('cancel')}</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.saveButton} onPress={handleAddMember}>
+                            <TouchableOpacity
+                                style={[styles.saveButton, savingMember && { opacity: 0.7 }]}
+                                onPress={handleAddMember}
+                                disabled={savingMember}
+                            >
                                 <LinearGradient
                                     colors={['#35b288', '#22a699']}
                                     style={styles.gradientButton}
                                 >
-                                    <Text style={styles.saveButtonText}>{i18n.t('add')}</Text>
+                                    <Text style={styles.saveButtonText}>
+                                        {savingMember ? `${i18n.t('add')}...` : i18n.t('add')}
+                                    </Text>
                                 </LinearGradient>
                             </TouchableOpacity>
                         </View>

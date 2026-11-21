@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput, ScrollView, Alert, Image } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useGroup } from '../../context/GroupContext';
@@ -38,6 +38,10 @@ export default function GroupDetails() {
     const [showAddExpense, setShowAddExpense] = useState(false);
     const [isFabExpanded, setIsFabExpanded] = useState(false);
     const [showDatePicker, setShowDatePicker] = useState(false);
+    const [savingExpense, setSavingExpense] = useState(false);
+    const savingExpenseRef = useRef(false);
+    const [savingMember, setSavingMember] = useState(false);
+    const savingMemberRef = useRef(false);
 
     // Sync status indicator
     const syncStatus = useSyncStatus(id || null);
@@ -198,57 +202,77 @@ export default function GroupDetails() {
     }
 
     const handleAddExpense = async () => {
-        if (!currentGroup.currency) {
-            alert(i18n.t('setCurrencyFirst'));
-            return;
+        if (savingExpenseRef.current) return;
+
+        savingExpenseRef.current = true;
+        setSavingExpense(true);
+
+        try {
+            if (!currentGroup.currency) {
+                alert(i18n.t('setCurrencyFirst'));
+                return;
+            }
+
+            const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
+            const activeMemberIds = new Set(activeMembers.map(m => m.id));
+            const validSplitAmong = splitAmong.filter(id => activeMemberIds.has(id));
+
+            if (!expenseTitle.trim() || !expenseAmount || !paidBy || validSplitAmong.length === 0) {
+                alert(i18n.t('fillAllFields'));
+                return;
+            }
+
+            if (!activeMemberIds.has(paidBy)) {
+                alert(i18n.t('fillAllFields'));
+                return;
+            }
+
+            const parsedMinor = parseCurrencyAmount(expenseAmount, currency);
+
+            if (parsedMinor === null) {
+                alert(i18n.t('invalidAmount'));
+                return;
+            }
+
+            const parsedAmount = fromMinorUnits(parsedMinor, currency);
+            const dateTimestamp = parseDateInput(expenseDate).getTime();
+            await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate, parsedMinor);
+            setShowAddExpense(false);
+            setExpenseTitle('');
+            setExpenseAmount('');
+            setExpenseDate(toDateInputValue());
+            setPaidBy('');
+        } finally {
+            savingExpenseRef.current = false;
+            setSavingExpense(false);
         }
-
-        const activeMembers = currentGroup.members.filter(m => m.status !== 'pending');
-        const activeMemberIds = new Set(activeMembers.map(m => m.id));
-        const validSplitAmong = splitAmong.filter(id => activeMemberIds.has(id));
-
-        if (!expenseTitle.trim() || !expenseAmount || !paidBy || validSplitAmong.length === 0) {
-            alert(i18n.t('fillAllFields'));
-            return;
-        }
-
-        if (!activeMemberIds.has(paidBy)) {
-            alert(i18n.t('fillAllFields'));
-            return;
-        }
-
-        const parsedMinor = parseCurrencyAmount(expenseAmount, currency);
-
-        if (parsedMinor === null) {
-            alert(i18n.t('invalidAmount'));
-            return;
-        }
-
-        const parsedAmount = fromMinorUnits(parsedMinor, currency);
-        const dateTimestamp = parseDateInput(expenseDate).getTime();
-        await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate, parsedMinor);
-        setShowAddExpense(false);
-        setExpenseTitle('');
-        setExpenseAmount('');
-        setExpenseDate(toDateInputValue());
-        setPaidBy('');
     };
 
     const handleAddMember = async () => {
+        if (savingMemberRef.current) return;
+
         const name = newMemberName.trim();
         if (!name) return;
 
-        const result = await addMember(name);
-        if (!result.success) {
-            Alert.alert(
-                i18n.t('error'),
-                i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
-            );
-            return;
-        }
+        savingMemberRef.current = true;
+        setSavingMember(true);
 
-        setShowAddMember(false);
-        setNewMemberName('');
+        try {
+            const result = await addMember(name);
+            if (!result.success) {
+                Alert.alert(
+                    i18n.t('error'),
+                    i18n.t(result.status === 'name_reserved' ? 'nameReservedOwner' : 'nameTaken')
+                );
+                return;
+            }
+
+            setShowAddMember(false);
+            setNewMemberName('');
+        } finally {
+            savingMemberRef.current = false;
+            setSavingMember(false);
+        }
     };
 
     const toggleSplitMember = (memberId: string) => {
@@ -278,12 +302,22 @@ export default function GroupDetails() {
                 {
                     text: i18n.t('save'),
                     onPress: async () => {
-                        await addExpense(
-                            i18n.t('settlement'),
-                            amount,
-                            fromMember.id,
-                            [toMember.id]
-                        );
+                        if (savingExpenseRef.current) return;
+
+                        savingExpenseRef.current = true;
+                        setSavingExpense(true);
+
+                        try {
+                            await addExpense(
+                                i18n.t('settlement'),
+                                amount,
+                                fromMember.id,
+                                [toMember.id]
+                            );
+                        } finally {
+                            savingExpenseRef.current = false;
+                            setSavingExpense(false);
+                        }
                     }
                 }
             ]
@@ -590,12 +624,18 @@ export default function GroupDetails() {
                             <TouchableOpacity style={styles.cancelButton} onPress={() => setShowAddExpense(false)}>
                                 <Text style={styles.cancelButtonText}>{i18n.t('cancel')}</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.saveButton} onPress={handleAddExpense}>
+                            <TouchableOpacity
+                                style={[styles.saveButton, savingExpense && { opacity: 0.7 }]}
+                                onPress={handleAddExpense}
+                                disabled={savingExpense}
+                            >
                                 <LinearGradient
                                     colors={['#fba74f', '#e09646']}
                                     style={styles.gradientButton}
                                 >
-                                    <Text style={styles.saveButtonText}>{i18n.t('save')}</Text>
+                                    <Text style={styles.saveButtonText}>
+                                        {savingExpense ? `${i18n.t('save')}...` : i18n.t('save')}
+                                    </Text>
                                 </LinearGradient>
                             </TouchableOpacity>
                         </View>
@@ -620,12 +660,18 @@ export default function GroupDetails() {
                             <TouchableOpacity style={styles.cancelButton} onPress={() => setShowAddMember(false)}>
                                 <Text style={styles.cancelButtonText}>{i18n.t('cancel')}</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.saveButton} onPress={handleAddMember}>
+                            <TouchableOpacity
+                                style={[styles.saveButton, savingMember && { opacity: 0.7 }]}
+                                onPress={handleAddMember}
+                                disabled={savingMember}
+                            >
                                 <LinearGradient
                                     colors={['#35b288', '#22a699']}
                                     style={styles.gradientButton}
                                 >
-                                    <Text style={styles.saveButtonText}>{i18n.t('add')}</Text>
+                                    <Text style={styles.saveButtonText}>
+                                        {savingMember ? `${i18n.t('add')}...` : i18n.t('add')}
+                                    </Text>
                                 </LinearGradient>
                             </TouchableOpacity>
                         </View>
