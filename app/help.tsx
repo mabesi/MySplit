@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import i18n from '../i18n/translations';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useConfig } from '../context/ConfigContext';
-import { formatDateString } from '../utils/date';
+import Constants from 'expo-constants';
 
 export default function HelpScreen() {
     const router = useRouter();
@@ -19,8 +19,10 @@ export default function HelpScreen() {
 
     const formatDate = (dateString: string | undefined) => {
         if (!dateString) return '';
-        return formatDateString(dateString, i18n.locale);
+        return dateString.slice(0, 10);
     };
+
+    const appVersion = Constants.expoConfig?.version ?? '1.0.1';
 
     const formattedLaunched = formatDate(launched);
     const formattedUpdated = formatDate(updated);
@@ -84,7 +86,7 @@ export default function HelpScreen() {
             id: 'appInfo',
             icon: 'information-circle-outline',
             title: i18n.t('helpAppInfoTitle'),
-            content: i18n.t('helpAppInfoContent', { launched: formattedLaunched, updated: formattedUpdated })
+            content: i18n.t('helpAppInfoContent', { version: appVersion, launched: formattedLaunched, updated: formattedUpdated })
         }
     ];
 
@@ -183,7 +185,7 @@ const styles = StyleSheet.create({
     introText: {
         fontSize: 14,
         color: '#94A3B8',
-        textAlign: 'center',
+        textAlign: 'justify',
         lineHeight: 20,
     },
     section: {
@@ -230,5 +232,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#CBD5E1',
         lineHeight: 22,
+        textAlign: 'justify',
     },
 });
