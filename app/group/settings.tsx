@@ -20,9 +20,9 @@ async function buildThumbnail(uri: string, fallbackBase64?: string | null): Prom
         const ImageManipulator = await import('expo-image-manipulator');
         const manipulated = await ImageManipulator.manipulateAsync(
             uri,
-            [{ resize: { width: 160 } }],
+            [{ resize: { width: 96 } }],
             {
-                compress: 0.5,
+                compress: 0.35,
                 format: ImageManipulator.SaveFormat.JPEG,
                 base64: true
             }
@@ -60,7 +60,7 @@ export default function SettingsScreen() {
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 allowsEditing: true,
                 aspect: [4, 3],
-                quality: 0.2,
+                quality: 0.1,
                 base64: true,
                 presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
             });
