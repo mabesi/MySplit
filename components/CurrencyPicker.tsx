@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, SectionList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import i18n from '../i18n/translations';
-import { getCurrencyOptions } from '../utils/currency';
+import { CurrencySection, getCurrencySections } from '../utils/currency';
 
 interface CurrencyPickerProps {
     visible: boolean;
@@ -18,16 +18,22 @@ export function CurrencyPicker({ visible, selected, onSelect, onClose }: Currenc
         if (!visible) setSearch('');
     }, [visible]);
 
-    const options = useMemo(() => getCurrencyOptions(i18n.locale), [i18n.locale]);
+    const sections = useMemo(() => getCurrencySections(i18n.locale), [i18n.locale]);
 
-    const filtered = useMemo(() => {
+    const filteredSections = useMemo<CurrencySection[]>(() => {
         const query = search.trim().toLowerCase();
-        if (!query) return options;
-        return options.filter(option =>
-            option.code.toLowerCase().includes(query) ||
-            option.label.toLowerCase().includes(query)
-        );
-    }, [options, search]);
+        if (!query) return sections;
+
+        return sections
+            .map(section => ({
+                ...section,
+                data: section.data.filter(option =>
+                    option.code.toLowerCase().includes(query) ||
+                    option.label.toLowerCase().includes(query)
+                )
+            }))
+            .filter(section => section.data.length > 0);
+    }, [sections, search]);
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -50,12 +56,16 @@ export function CurrencyPicker({ visible, selected, onSelect, onClose }: Currenc
                         autoCorrect={false}
                     />
 
-                    <FlatList
-                        data={filtered}
+                    <SectionList
+                        sections={filteredSections}
                         keyExtractor={item => item.code}
                         keyboardShouldPersistTaps="handled"
                         showsVerticalScrollIndicator={false}
+                        stickySectionHeadersEnabled={false}
                         style={styles.list}
+                        renderSectionHeader={({ section }) => (
+                            <Text style={styles.sectionHeader}>{i18n.t(section.titleKey)}</Text>
+                        )}
                         renderItem={({ item }) => {
                             const sample = item.label.split('—')[1]?.trim() || '';
                             const isSelected = item.code === selected;
@@ -119,6 +129,16 @@ const styles = StyleSheet.create({
     },
     list: {
         flex: 1
+    },
+    sectionHeader: {
+        color: '#64748B',
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+        marginTop: 14,
+        marginBottom: 4,
+        paddingHorizontal: 8
     },
     item: {
         flexDirection: 'row',

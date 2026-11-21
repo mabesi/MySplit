@@ -9,6 +9,17 @@ import { parseAmountToMinor } from './number';
 
 export const DEFAULT_CURRENCY = 'BRL';
 
+// BRL (the app's primary currency) followed by the five most used currencies
+// worldwide, ordered from most to least important.
+export const FEATURED_CURRENCIES = ['BRL', 'USD', 'EUR', 'JPY', 'GBP', 'CNY'];
+
+export type CurrencyOption = { code: string; label: string };
+
+export interface CurrencySection {
+    titleKey: 'mainCurrencies' | 'otherCurrencies';
+    data: CurrencyOption[];
+}
+
 // Current ISO 4217 codes exposed by Intl. Kept as a static list because Hermes
 // may not implement Intl.supportedValuesOf. Unknown 3-letter codes are still
 // accepted and let Intl decide how to format them.
@@ -84,9 +95,27 @@ export function parseCurrencyAmount(input: string, currency: string): number | n
     return minor !== null && minor > 0 ? minor : null;
 }
 
-export function getCurrencyOptions(locale: string = 'en'): Array<{ code: string; label: string }> {
+export function getCurrencyOptions(locale: string = 'en'): CurrencyOption[] {
     return CURRENCY_CODES.map(code => ({
         code,
         label: `${code} — ${formatCurrencyAmount(1234.56, code, locale)}`
     }));
+}
+
+export function getCurrencySections(locale: string = 'en'): CurrencySection[] {
+    const options = getCurrencyOptions(locale);
+    const byCode = new Map(options.map(option => [option.code, option]));
+
+    const main = FEATURED_CURRENCIES
+        .map(code => byCode.get(code))
+        .filter((option): option is CurrencyOption => Boolean(option));
+
+    const other = options
+        .filter(option => !FEATURED_CURRENCIES.includes(option.code))
+        .sort((a, b) => a.code.localeCompare(b.code));
+
+    return [
+        { titleKey: 'mainCurrencies', data: main },
+        { titleKey: 'otherCurrencies', data: other }
+    ];
 }
