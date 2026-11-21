@@ -381,7 +381,11 @@ export default function GroupDetails() {
             {!hasCurrency && (
                 <View style={styles.currencyBanner}>
                     <Ionicons name="cash-outline" size={16} color="#F59E0B" />
-                    <Text style={styles.currencyBannerText}>{i18n.t('setCurrencyFirst')}</Text>
+                    <Text style={styles.currencyBannerText}>
+                        {currentGroup.ownerId === userId
+                            ? i18n.t('setCurrencyFirst')
+                            : i18n.t('currencyOwnerSet')}
+                    </Text>
                 </View>
             )}
 
@@ -508,8 +512,8 @@ export default function GroupDetails() {
             </View>
 
             {/* ... (FABs) ... */}
-            {/* Expandable FAB (active members only, after currency is set) */}
-            {isActiveMember && hasCurrency && (
+            {/* Expandable FAB (active members only) */}
+            {isActiveMember && (
             <View style={styles.fabContainer}>
                 {isFabExpanded && (
                     <>
@@ -526,6 +530,26 @@ export default function GroupDetails() {
                             style={[styles.fab, { backgroundColor: '#fba74f', marginBottom: 16 }]}
                             onPress={() => {
                                 setIsFabExpanded(false);
+
+                                if (!hasCurrency) {
+                                    if (currentGroup.ownerId === userId) {
+                                        Alert.alert(
+                                            i18n.t('currency'),
+                                            i18n.t('setCurrencyFirst'),
+                                            [
+                                                { text: i18n.t('cancel'), style: 'cancel' },
+                                                {
+                                                    text: i18n.t('groupSettings'),
+                                                    onPress: () => router.push('/group/settings')
+                                                }
+                                            ]
+                                        );
+                                    } else {
+                                        Alert.alert(i18n.t('currency'), i18n.t('currencyOwnerSet'));
+                                    }
+                                    return;
+                                }
+
                                 setShowAddExpense(true);
                             }}
                         >
