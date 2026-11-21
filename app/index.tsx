@@ -11,7 +11,6 @@ import { useSyncStatus } from '../hooks/useSyncStatus';
 import { SyncIndicator } from '../components/SyncIndicator';
 import { CurrencyPicker } from '../components/CurrencyPicker';
 import { formatCurrencyAmount } from '../utils/currency';
-import { getDeviceCurrency } from '../utils/deviceCurrency';
 
 // Helper component for each group in the grid
 const GroupListItem = React.memo(({ groupId }: { groupId: string }) => {
@@ -109,7 +108,7 @@ export default function HomeScreen() {
     const insets = useSafeAreaInsets();
     const { joinGroupId } = useLocalSearchParams<{ joinGroupId?: string }>();
     const [showJoinModal, setShowJoinModal] = useState(false); // Added this state
-    const [currency, setCurrency] = useState(getDeviceCurrency());
+    const [currency, setCurrency] = useState('');
     const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
     const onRefresh = useCallback(async () => {
@@ -136,10 +135,12 @@ export default function HomeScreen() {
 
     const handleCreate = async () => {
         if (!name || !userName) return alert(i18n.t('fillAllFields'));
+        if (!currency) return alert(i18n.t('chooseCurrency'));
         try {
             const id = await createGroup(name.toUpperCase(), userName, currency);
             if (id) {
-                setName(''); // Clear group name only
+                setName('');
+                setCurrency('');
                 router.push(`/group/${id}`);
             }
         } catch (e) {
@@ -338,7 +339,9 @@ export default function HomeScreen() {
                                         >
                                             <Ionicons name="cash-outline" size={18} color="#94A3B8" style={styles.inputIcon} />
                                             <Text style={styles.currencyText} numberOfLines={1}>
-                                                {i18n.t('currency')}: {currency} · {formatCurrencyAmount(1234.56, currency, i18n.locale)}
+                                                {currency
+                                                    ? `${i18n.t('currency')}: ${currency} · ${formatCurrencyAmount(1234.56, currency, i18n.locale)}`
+                                                    : i18n.t('selectCurrency')}
                                             </Text>
                                             <Ionicons name="chevron-forward" size={18} color="#64748B" style={styles.currencyChevron} />
                                         </TouchableOpacity>

@@ -13,7 +13,6 @@ export interface Expense {
     id: string;
     title: string;
     amount: number;
-    amountMinor?: number; // Amount in the group currency's minor units
     paidBy: string; // Member ID
     splitAmong: string[]; // Member IDs
     date: number; // Timestamp used for sorting and legacy compatibility

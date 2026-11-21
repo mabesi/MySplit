@@ -236,7 +236,7 @@ export default function GroupDetails() {
 
             const parsedAmount = fromMinorUnits(parsedMinor, currency);
             const dateTimestamp = parseDateInput(expenseDate).getTime();
-            await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate, parsedMinor);
+            await addExpense(expenseTitle.trim(), parsedAmount, paidBy, validSplitAmong, dateTimestamp, expenseDate);
             setShowAddExpense(false);
             setExpenseTitle('');
             setExpenseAmount('');
@@ -373,7 +373,7 @@ export default function GroupDetails() {
                 <View style={styles.totalContainer}>
                     <Text style={styles.statLabel}>{i18n.t('totalExpenses')}</Text>
                     <Text style={styles.statValue}>
-                        {formatCurrencyMinor(currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + (typeof e.amountMinor === 'number' ? e.amountMinor : toMinorUnits(e.amount, currency)), 0), currency, i18n.locale)}
+                        {formatCurrencyMinor(currentGroup.expenses.filter(e => !isSettlement(e)).reduce((sum: number, e: any) => sum + toMinorUnits(e.amount, currency), 0), currency, i18n.locale)}
                     </Text>
                 </View>
             </View>
@@ -434,7 +434,7 @@ export default function GroupDetails() {
                                     </View>
                                     <View style={styles.expenseRight}>
                                         <Text style={[styles.expenseAmount, settlement && styles.settlementAmount]}>
-                                            {formatCurrencyMinor(typeof item.amountMinor === 'number' ? item.amountMinor : toMinorUnits(item.amount, currency), currency, i18n.locale)}
+                                            {formatCurrencyAmount(item.amount, currency, i18n.locale)}
                                         </Text>
                                         <Text style={styles.expenseDate}>
                                             {formatDateString(expenseDisplayDate(item), i18n.locale)}

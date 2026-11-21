@@ -333,8 +333,8 @@ service cloud.firestore {
         validUpdatedAt();
     }
 
-    // The owner can set the currency of a legacy group once, or change it while
-    // the group still has no expenses.
+    // The owner can set or change the currency at any time. Values are not
+    // converted; the currency only changes the symbol.
     function canUpdateCurrency(oldData) {
       return isOwner(oldData) &&
         hasSameMembers(oldData) &&
@@ -344,7 +344,6 @@ service cloud.firestore {
         sameMeta(oldData) &&
         sameSummary(oldData) &&
         validCurrency(request.resource.data.currency) &&
-        (!('currency' in oldData) || oldData.expenses.size() == 0) &&
         validUpdatedAt();
     }
 

@@ -48,8 +48,8 @@ export default function SettingsScreen() {
     if (!currentGroup) return null;
 
     const isOwner = currentGroup.ownerId === userId;
-    const currency = normalizeCurrency(currentGroup.currency);
-    const canChangeCurrency = isOwner && (!currentGroup.currency || currentGroup.expenses.length === 0);
+    const currency = currentGroup.currency ? normalizeCurrency(currentGroup.currency) : '';
+    const canChangeCurrency = isOwner;
     const legacyImageTooLarge = !!currentGroup.imageUrl &&
         currentGroup.imageUrl.startsWith('data:') &&
         currentGroup.imageUrl.length > 200000;
@@ -205,10 +205,16 @@ export default function SettingsScreen() {
                                 <Ionicons name="cash-outline" size={20} color="#35b288" />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.menuText}>{currency}</Text>
-                                <Text style={styles.cardSubtitle}>
-                                    {formatCurrencyAmount(1234.56, currency, i18n.locale)}
-                                </Text>
+                                {currency ? (
+                                    <>
+                                        <Text style={styles.menuText}>{currency}</Text>
+                                        <Text style={styles.cardSubtitle}>
+                                            {formatCurrencyAmount(1234.56, currency, i18n.locale)}
+                                        </Text>
+                                    </>
+                                ) : (
+                                    <Text style={styles.currencyNotSetText}>{i18n.t('currencyNotSet')}</Text>
+                                )}
                             </View>
                             {canChangeCurrency ? (
                                 <Ionicons name="chevron-forward" size={20} color="#64748B" />
@@ -217,9 +223,7 @@ export default function SettingsScreen() {
                             )}
                         </TouchableOpacity>
                         {!canChangeCurrency && (
-                            <Text style={styles.currencyNote}>
-                                {isOwner ? i18n.t('currencyLockedMessage') : i18n.t('ownerOnlyCurrency')}
-                            </Text>
+                            <Text style={styles.currencyNote}>{i18n.t('ownerOnlyCurrency')}</Text>
                         )}
                     </View>
                 </View>
@@ -266,7 +270,23 @@ export default function SettingsScreen() {
             <CurrencyPicker
                 visible={showCurrencyPicker}
                 selected={currency}
-                onSelect={updateGroupCurrency}
+                onSelect={(code) => {
+                    if (!currentGroup.currency || currentGroup.expenses.length === 0) {
+                        updateGroupCurrency(code);
+                        return;
+                    }
+
+                    if (code === currentGroup.currency) return;
+
+                    Alert.alert(
+                        i18n.t('currency'),
+                        i18n.t('changeCurrencyNoConversion'),
+                        [
+                            { text: i18n.t('cancel'), style: 'cancel' },
+                            { text: i18n.t('yes'), onPress: () => updateGroupCurrency(code) }
+                        ]
+                    );
+                }}
                 onClose={() => setShowCurrencyPicker(false)}
             />
         </ScreenWrapper>
@@ -294,6 +314,7 @@ const styles = StyleSheet.create({
     cardTitle: { fontSize: 16, fontWeight: '600', color: '#F8FAFC' },
     cardSubtitle: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
     currencyNote: { fontSize: 12, color: '#64748B', paddingHorizontal: 12, paddingBottom: 12, lineHeight: 17 },
+    currencyNotSetText: { fontSize: 16, color: '#94A3B8', fontWeight: '500' },
     saveButton: { marginTop: 16, backgroundColor: '#35b288', padding: 12, borderRadius: 12, alignItems: 'center' },
     saveButtonText: { color: 'white', fontWeight: 'bold' },
     menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },

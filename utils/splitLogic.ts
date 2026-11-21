@@ -35,9 +35,7 @@ export function calculateBalances(group: Group): { balances: Balance[], transact
         const participants = expense.splitAmong.filter(memberId => activeIds.has(memberId));
         if (participants.length === 0) return;
 
-        const amountMinor = typeof expense.amountMinor === 'number' && Number.isFinite(expense.amountMinor)
-            ? Math.round(expense.amountMinor)
-            : toMinorUnits(expense.amount, currency);
+        const amountMinor = toMinorUnits(expense.amount, currency);
 
         if (amountMinor <= 0) return;
 

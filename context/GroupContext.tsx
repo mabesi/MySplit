@@ -42,7 +42,7 @@ interface GroupContextType {
     createGroup: (name: string, userName: string, currency?: string) => Promise<string>;
     getGroup: (groupId: string) => Promise<Group | null>;
     joinGroup: (groupId: string, userName?: string) => Promise<{ success: boolean; status: 'joined' | 'already_member' | 'name_taken' | 'name_reserved' | 'error' | 'group_not_found'; memberName?: string; isActive?: boolean }>;
-    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string, amountMinor?: number) => Promise<void>;
+    addExpense: (title: string, amount: number, paidBy: string, splitAmong: string[], date?: number, dateString?: string) => Promise<void>;
     addMember: (name: string) => Promise<{ success: boolean; status?: 'name_taken' | 'name_reserved' | 'error' }>;
     removeMember: (memberId: string) => Promise<void>;
     deleteExpense: (expenseId: string) => Promise<void>;
@@ -648,20 +648,17 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // ========== ADD EXPENSE ==========
-    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string, amountMinorParam?: number) => {
+    const addExpense = async (title: string, amount: number, paidBy: string, splitAmong: string[], date: number = Date.now(), dateString?: string) => {
         if (!currentGroup) return;
 
         const currency = normalizeCurrency(currentGroup.currency);
-        const amountMinor = amountMinorParam && amountMinorParam > 0
-            ? Math.round(amountMinorParam)
-            : toMinorUnits(amount, currency);
+        const amountMinor = toMinorUnits(amount, currency);
         if (amountMinor <= 0) return;
 
         const newExpense: Expense = {
             id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
             title,
             amount: fromMinorUnits(amountMinor, currency),
-            amountMinor,
             paidBy,
             splitAmong,
             date,
@@ -845,9 +842,6 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const normalized = normalizeCurrency(currency);
         if (currentGroup.currency === normalized) return;
 
-        // A group with expenses can only change currency if it never had one
-        // (legacy group being labeled for the first time).
-        if (currentGroup.currency && currentGroup.expenses.length > 0) return;
 
         const updatedGroup = {
             ...currentGroup,
