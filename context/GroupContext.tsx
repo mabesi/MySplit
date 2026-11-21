@@ -488,12 +488,6 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setCurrentGroup(group);
                 addToMyGroups(group.id);
 
-                // Subscribe to updates
-                subscribeToGroup(groupId, (updated) => {
-                    if (updated) {
-                        setCurrentGroup(updated);
-                    }
-                });
 
                 return {
                     success: false,
@@ -542,12 +536,6 @@ export const GroupProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             addToMyGroups(group.id);
 
-            // Subscribe to updates
-            subscribeToGroup(groupId, (updated) => {
-                if (updated) {
-                    setCurrentGroup(updated);
-                }
-            });
 
             return { success: true, status: 'joined' as const };
         } catch (error) {
